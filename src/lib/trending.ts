@@ -97,8 +97,12 @@ function extractHashtags(titles: string[]): { tag: string; count: number }[] {
 
 /* ------------------------------- refresh ---------------------------------- */
 
-export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSnapshot> {
-  const videos = await searchVideos(cat.query, "en", "IN", 25);
+async function computeSnapshot(
+  categoryId: string,
+  label: string,
+  query: string
+): Promise<TrendingSnapshot> {
+  const videos = await searchVideos(query, "en", "IN", 25);
   // Fresh, accurate view counts from the official API (cheap, one batched call).
   if (hasYouTubeApiKey()) {
     const details = await fetchVideoDetails(videos.map((v) => v.videoId));
@@ -136,7 +140,7 @@ export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSna
   const hashtags =
     topHashtags.length > 0
       ? topHashtags
-      : generateHashtags(cat.query, titleWords.map((w) => w.word), 12).map((tag) => ({
+      : generateHashtags(query, titleWords.map((w) => w.word), 12).map((tag) => ({
           tag,
           count: 0,
         }));
@@ -148,14 +152,14 @@ export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSna
     ? `Right now "${top.title}" is rising fastest (~${Math.round(
         top.velocity
       ).toLocaleString()} views/hr). Winning videos commonly use the tag "${
-        sharedTag ?? cat.query
-      }" and the word "${sharedWord ?? cat.query}" in the title. Add these tags + the top hashtags to ride the trend.`
-    : `Not enough data yet for "${cat.label}". Try refreshing again shortly.`;
+        sharedTag ?? query
+      }" and the word "${sharedWord ?? query}" in the title. Add these tags + the top hashtags to ride the trend.`
+    : `Not enough data yet for "${label}". Try refreshing again shortly.`;
 
-  const snapshot: TrendingSnapshot = {
-    categoryId: cat.id,
-    label: cat.label,
-    query: cat.query,
+  return {
+    categoryId,
+    label,
+    query,
     updatedAt: new Date().toISOString(),
     videos: trending.slice(0, 20),
     insight: {
@@ -165,8 +169,21 @@ export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSna
       recommendation,
     },
   };
+}
+
+export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSnapshot> {
+  const snapshot = await computeSnapshot(cat.id, cat.label, cat.query);
   await store.set(`trending:${cat.id}`, snapshot);
   return snapshot;
+}
+
+/**
+ * Ad-hoc trend search for any typed query (category / singer / artist / song).
+ * Computes the same viral insight + video list but is NOT stored.
+ */
+export async function searchTrending(query: string): Promise<TrendingSnapshot> {
+  const q = query.trim();
+  return computeSnapshot(`adhoc:${q.toLowerCase()}`, q, q);
 }
 
 export async function refreshAll(): Promise<{ refreshed: number }> {

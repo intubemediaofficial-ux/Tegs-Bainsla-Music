@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { CopyButton } from "./Copy";
+import { VideoDetailModal, TagRankBlock, type VideoRef } from "./VideoDetail";
 
 interface TrendingVideo {
   videoId: string;
@@ -40,6 +41,12 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
   const [active, setActive] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [openVideo, setOpenVideo] = useState<VideoRef | null>(null);
+
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [adhoc, setAdhoc] = useState<Snapshot | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   async function load() {
     const r = await fetch("/api/trending");
@@ -65,13 +72,61 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  async function search(e: React.FormEvent) {
+    e.preventDefault();
+    if (!q.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const r = await fetch("/api/trending/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed");
+      setAdhoc(j.snapshot);
+      setActive(j.snapshot.categoryId);
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setSearching(false);
+    }
+  }
+
   if (loading) return <div className="card text-slate-400">Loading trending data…</div>;
 
-  const current = snapshots.find((s) => s.categoryId === active) ?? snapshots[0];
+  const all = adhoc ? [adhoc, ...snapshots] : snapshots;
+  const current = all.find((s) => s.categoryId === active) ?? all[0];
 
   return (
     <div className="space-y-4">
+      <form onSubmit={search} className="card flex flex-wrap gap-3">
+        <input
+          className="input flex-1"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search any category / singer / artist / song — e.g. krishna bhajan, kd desirock"
+        />
+        <button className="btn-primary" disabled={searching}>
+          {searching ? "Searching…" : "Search trends"}
+        </button>
+      </form>
+      {searchError && <div className="card border-red-500/40 text-red-300">{searchError}</div>}
+
       <div className="flex flex-wrap items-center gap-2">
+        {adhoc && (
+          <button
+            onClick={() => setActive(adhoc.categoryId)}
+            className={`rounded-full px-3 py-1 text-sm ${
+              current?.categoryId === adhoc.categoryId
+                ? "bg-brand-600 text-white"
+                : "border border-brand-500/50 bg-ink-card text-brand-200"
+            }`}
+          >
+            🔎 {adhoc.label}
+          </button>
+        )}
         {snapshots.map((s) => (
           <button
             key={s.categoryId}
@@ -95,7 +150,7 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
       {!current ? (
         <div className="card text-slate-400">
           No trending snapshots yet.{" "}
-          {isAdmin ? "Click “Refresh now” to populate." : "Ask an admin to refresh."}
+          {isAdmin ? "Click “Refresh now” to populate, or search a query above." : "Search a query above, or ask an admin to refresh."}
           {categories.length > 0 && (
             <div className="mt-2 text-xs">Tracked: {categories.map((c) => c.label).join(", ")}</div>
           )}
@@ -105,12 +160,14 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
           <div className="card border-brand-500/40">
             <div className="mb-1 text-sm font-semibold text-brand-300">Why it&apos;s viral</div>
             <p className="text-sm text-slate-200">{current.insight.recommendation}</p>
-            <div className="mt-3 flex flex-col gap-3 md:flex-row">
-              <InsightList
-                title="Common tags"
-                items={current.insight.topTags.map((t) => t.tag)}
-                copyable
-              />
+            <div className="mt-3 flex flex-col gap-4 md:flex-row">
+              <div className="flex-1">
+                <TagRankBlock
+                  title="Common tags (trend rank)"
+                  tags={current.insight.topTags.map((t, i) => ({ tag: t.tag, rank: i + 1 }))}
+                  emptyNote="No public tags found on the top videos."
+                />
+              </div>
               <InsightList
                 title="Common hashtags"
                 items={current.insight.topHashtags.map((t) => t.tag)}
@@ -126,14 +183,26 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
             </p>
           </div>
 
+          <p className="text-xs text-slate-500">
+            Click a video to open its description + real tags (with search rank) and play it here —
+            it won&apos;t jump to YouTube.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {current.videos.slice(0, 12).map((v) => (
-              <a
+              <button
                 key={v.videoId}
-                href={v.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex gap-3 rounded-lg border border-ink-line bg-ink-card p-2 hover:border-brand-500"
+                onClick={() =>
+                  setOpenVideo({
+                    videoId: v.videoId,
+                    title: v.title,
+                    channel: v.channel,
+                    views: v.views,
+                    publishedText: v.publishedText,
+                    thumbnail: v.thumbnail,
+                    url: v.url,
+                  })
+                }
+                className="flex gap-3 rounded-lg border border-ink-line bg-ink-card p-2 text-left hover:border-brand-500"
               >
                 <Image
                   src={v.thumbnail}
@@ -157,10 +226,18 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
                     </span>
                   </div>
                 </div>
-              </a>
+              </button>
             ))}
           </div>
         </>
+      )}
+
+      {openVideo && (
+        <VideoDetailModal
+          video={openVideo}
+          seed={current?.query}
+          onClose={() => setOpenVideo(null)}
+        />
       )}
     </div>
   );

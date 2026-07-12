@@ -8,10 +8,70 @@ import {
   suggestTitles,
   getVideoTags,
   cleanTags,
+  isUsefulTag,
 } from "./youtube";
 import { hasYouTubeApiKey, fetchVideoDetails } from "./youtube-api";
 import { scoreKeyword, scoreTitle } from "./scoring";
 import type { VideoLite } from "./types";
+
+const cap = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+
+export interface BuiltTitle {
+  title: string;
+  score: number;
+  reasons: string[];
+}
+
+/**
+ * Title Builder: from just a song name + singer, assemble ready-to-use full
+ * titles that embed the highest-demand search keywords (autocomplete order =
+ * what people actually search), each scored /100.
+ */
+export async function buildTitles(song: string, singer: string, opts: GenerateOptions = {}) {
+  const hl = opts.hl ?? "en";
+  const gl = opts.gl ?? "IN";
+  const s = song.trim();
+  const singerName = singer.trim();
+  const seed = [s, singerName].filter(Boolean).join(" ").trim() || s;
+  const year = new Date().getFullYear();
+
+  const keywords = await expandKeywords(s || seed, hl, gl);
+
+  const stop = new Set(
+    [...s.toLowerCase().split(/\s+/), ...singerName.toLowerCase().split(/\s+/)].filter(Boolean)
+  );
+  const topKw = keywords
+    .filter((k) => isUsefulTag(k) && !stop.has(k) && k !== s.toLowerCase())
+    .slice(0, 8);
+
+  const songC = cap(s);
+  const singerC = cap(singerName);
+  const kw1 = topKw[0] ? cap(topKw[0]) : "";
+  const kw2 = topKw[1] ? cap(topKw[1]) : "";
+
+  const templates: string[][] = [
+    [songC, singerC, kw1, `New Song ${year}`, "(Official Video)"],
+    [songC, singerC, `Full Video Song ${year}`],
+    [songC, kw1, singerC, `${year}`],
+    [singerC, songC, "Official Video", kw1],
+    [songC, singerC, kw1, kw2, "HD"],
+  ];
+
+  const seen = new Set<string>();
+  const titles: BuiltTitle[] = [];
+  for (const parts of templates) {
+    const title = parts.filter(Boolean).join(" | ");
+    const key = title.toLowerCase();
+    if (!title || seen.has(key)) continue;
+    seen.add(key);
+    const { score, reasons } = scoreTitle(title, s || singerName);
+    titles.push({ title, score, reasons });
+  }
+  titles.sort((a, b) => b.score - a.score);
+
+  const keywordsUsed = topKw.slice(0, 6).map((k, i) => ({ tag: k, rank: i + 1 }));
+  return { song: s, singer: singerName, titles, keywordsUsed };
+}
 
 export interface GenerateOptions {
   hl?: string;

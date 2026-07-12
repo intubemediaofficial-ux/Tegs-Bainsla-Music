@@ -159,6 +159,7 @@ export interface ApiVideoDetail {
   title: string;
   channel: string;
   publishedAt: string;
+  description: string;
 }
 
 interface VideosListResponse {
@@ -169,6 +170,7 @@ interface VideosListResponse {
       channelTitle?: string;
       publishedAt?: string;
       tags?: string[];
+      description?: string;
     };
     statistics?: { viewCount?: string };
   }[];
@@ -202,6 +204,7 @@ export async function fetchVideoDetails(
           title: item.snippet?.title ?? "",
           channel: item.snippet?.channelTitle ?? "",
           publishedAt: item.snippet?.publishedAt ?? "",
+          description: item.snippet?.description ?? "",
         });
       }
     } catch {
