@@ -447,16 +447,21 @@ export async function rankTags(
     const exact = rankOf.get(norm);
     if (exact) return exact;
     if (norm.length < 3) return null;
-    let best: number | null = null;
+    // Pick the most *specific* matching search term (longest overlap), so tags
+    // don't all collapse onto the generic seed at rank #1.
+    let bestRank: number | null = null;
+    let bestLen = -1;
     for (let i = 0; i < universe.length; i++) {
       const u = universe[i];
       if (u.length < 3) continue;
       if (u.includes(norm) || norm.includes(u)) {
-        best = i + 1;
-        break;
+        if (u.length > bestLen) {
+          bestLen = u.length;
+          bestRank = i + 1;
+        }
       }
     }
-    return best;
+    return bestRank;
   };
 
   const usedNorms = new Set<string>();
