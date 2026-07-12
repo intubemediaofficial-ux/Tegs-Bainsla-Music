@@ -47,6 +47,15 @@ export interface VideoLite {
   url: string;
 }
 
+export interface PlaylistLite {
+  playlistId: string;
+  title: string;
+  channel: string;
+  videoCount: number;
+  thumbnail: string;
+  url: string;
+}
+
 export interface TrendingVideo extends VideoLite {
   ageHours: number;
   velocity: number; // views per hour since publish

@@ -7,6 +7,7 @@ interface Result {
   videoId: string;
   tags: string[];
   count: number;
+  onlyDefault?: boolean;
   tagBox: { text: string; used: string[] };
 }
 
@@ -63,7 +64,9 @@ export function CompetitorTags() {
           </div>
           {data.count === 0 ? (
             <p className="text-sm text-slate-400">
-              This video has no public tags (many creators hide them).
+              {data.onlyDefault
+                ? "This video exposes only YouTube's default keywords — the creator hid their custom tags."
+                : "This video has no public tags (many creators hide them)."}
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
