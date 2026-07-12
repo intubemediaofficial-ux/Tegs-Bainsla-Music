@@ -1,4 +1,5 @@
 import type { VideoLite, PlaylistLite } from "./types";
+import { hasYouTubeApiKey, fetchVideoTags } from "./youtube-api";
 
 /**
  * YouTube data engine — uses only YouTube's free public endpoints, no API key:
@@ -354,6 +355,12 @@ export async function searchPlaylists(
 /* ------------------------------- video tags ------------------------------- */
 
 export async function getVideoTags(videoId: string): Promise<string[]> {
+  // Prefer the official API (returns real tags even when the public page hides
+  // them) and fall back to scraping when no key is configured or it returns none.
+  if (hasYouTubeApiKey()) {
+    const apiTags = await fetchVideoTags(videoId);
+    if (apiTags.length) return apiTags;
+  }
   const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=IN`;
   let html: string;
   try {
