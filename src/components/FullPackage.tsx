@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { CopyButton } from "./Copy";
+import { VideoDetailModal, TagRankBlock, type VideoRef, type RankedTag } from "./VideoDetail";
 
 const LANGS = [
   { hl: "en", gl: "IN", label: "English (India)" },
@@ -48,7 +49,7 @@ interface PackageResult {
   thumbnails: Thumb[];
   playlists: Playlist[];
   score: { difficulty: number; volume: number; competition: number; opportunity: number };
-  realTags: string[];
+  realTags: RankedTag[];
 }
 
 function Bar({ label, value }: { label: string; value: number }) {
@@ -77,115 +78,19 @@ function Bar({ label, value }: { label: string; value: number }) {
   );
 }
 
-/**
- * Shows a video's real tags. Uses inline tags if we already have them, otherwise
- * fetches them on demand (many YouTube videos no longer expose public tags).
- */
-function VideoTagList({ videoId, inline }: { videoId: string; inline: string[] }) {
-  const [tags, setTags] = useState<string[]>(inline ?? []);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if ((inline?.length ?? 0) > 0) {
-      setTags(inline);
-      return;
-    }
-    let active = true;
-    setLoading(true);
-    fetch(`/api/video/tags?video=${videoId}`)
-      .then((r) => r.json())
-      .then((j) => active && setTags(j.tags ?? []))
-      .catch(() => {})
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [videoId, inline]);
-
-  return (
-    <>
-      <div className="mb-2 flex items-center justify-between">
-        <div className="label">Tags actually used on this video</div>
-        {tags.length > 0 && (
-          <CopyButton text={tags.join(",")} label="Copy tags" className="btn-ghost px-2 py-1" />
-        )}
-      </div>
-      {loading ? (
-        <p className="text-sm text-slate-400">Loading tags…</p>
-      ) : tags.length === 0 ? (
-        <p className="text-sm text-slate-400">
-          This video exposes no public tags (YouTube hides most videos&apos; tags now).
-        </p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {tags.map((t) => (
-            <span key={t} className="chip">
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-/** Modal: plays the video next to its thumbnail and shows its real tags. */
-function VideoModal({ video, onClose }: { video: Thumb; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="card max-h-[90vh] w-full max-w-4xl overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-100">{video.title}</h3>
-          <button className="btn-ghost px-2 py-1 text-lg leading-none" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-3">
-            <div className="aspect-video w-full overflow-hidden rounded-lg border border-ink-line">
-              <iframe
-                src={`https://www.youtube.com/embed/${video.videoId}?autoplay=1&rel=0`}
-                title={video.title}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="h-full w-full"
-              />
-            </div>
-            <div className="text-xs text-slate-400">
-              {video.channel && <span className="chip">{video.channel}</span>}{" "}
-              <span className="chip">{video.views.toLocaleString()} views</span>
-            </div>
-          </div>
-          <div>
-            <VideoTagList videoId={video.videoId} inline={video.tags} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [lang, setLang] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PackageResult | null>(null);
-  const [openTitle, setOpenTitle] = useState<number | null>(null);
-  const [modal, setModal] = useState<Thumb | null>(null);
+  const [openVideo, setOpenVideo] = useState<VideoRef | null>(null);
 
   async function run(e?: React.FormEvent) {
     e?.preventDefault();
     if (!query.trim()) return;
     setLoading(true);
     setError(null);
-    setOpenTitle(null);
     try {
       const { hl, gl } = LANGS[lang];
       const res = await fetch("/api/generate/package", {
@@ -212,7 +117,7 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
             className="input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. bhajan, punjabi song, DG Mawai"
+            placeholder="e.g. bhajan, punjabi song, artist or singer name"
           />
         </div>
         <div>
@@ -259,26 +164,34 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                 Suggested titles
               </h2>
-              <span className="text-xs text-slate-500">click a title to see its real tags</span>
+              <span className="text-xs text-slate-500">
+                click a ranking title → its real tags with rank (won&apos;t open YouTube)
+              </span>
             </div>
             <div className="space-y-3">
-              {data.titles.map((t, i) => {
-                const open = openTitle === i;
+              {data.titles.map((t) => {
                 const expandable = t.source === "ranking" && !!t.videoId;
                 return (
                   <div key={t.title} className="rounded-lg border border-ink-line bg-ink-soft">
                     <div
                       role={expandable ? "button" : undefined}
                       className={`flex w-full items-start justify-between gap-3 p-3 text-left ${
-                        expandable ? "cursor-pointer" : ""
+                        expandable ? "cursor-pointer hover:border-brand-400/40" : ""
                       }`}
-                      onClick={() => expandable && setOpenTitle(open ? null : i)}
+                      onClick={() =>
+                        expandable &&
+                        setOpenVideo({
+                          videoId: t.videoId!,
+                          title: t.title,
+                          views: t.views,
+                          rank: t.rank,
+                          url: `https://www.youtube.com/watch?v=${t.videoId}`,
+                        })
+                      }
                     >
                       <div>
                         <div className="font-medium text-slate-100">
-                          {expandable && (
-                            <span className="mr-1 text-slate-500">{open ? "▾" : "▸"}</span>
-                          )}
+                          {expandable && <span className="mr-1 text-slate-500">▸</span>}
                           {t.title}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
@@ -315,19 +228,6 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
                         </span>
                       </div>
                     </div>
-                    {open && t.videoId && (
-                      <div className="border-t border-ink-line p-3">
-                        <VideoTagList videoId={t.videoId} inline={t.tags} />
-                        <a
-                          href={`https://www.youtube.com/watch?v=${t.videoId}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-3 inline-block text-xs text-brand-300 hover:underline"
-                        >
-                          Open video on YouTube ↗
-                        </a>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -343,15 +243,17 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
             </div>
             <textarea readOnly className="input h-28 font-mono text-xs" value={data.tagBox.text} />
             {data.realTags.length > 0 && (
-              <div className="mt-3">
-                <div className="label">Premium tags found on ranking videos</div>
-                <div className="flex flex-wrap gap-2">
-                  {data.realTags.slice(0, 20).map((t) => (
-                    <span key={t} className="chip">
-                      {t}
-                    </span>
-                  ))}
-                </div>
+              <div className="mt-4">
+                <TagRankBlock
+                  title="Premium tags found on ranking videos (search rank)"
+                  tags={data.realTags}
+                  emptyNote="No public tags on the ranking videos."
+                  highlight
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Rank = position in live YouTube autocomplete (what people search) — an honest
+                  demand proxy, not an official metric.
+                </p>
               </div>
             )}
           </div>
@@ -378,17 +280,14 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
                 Trending playlists to submit to
               </h2>
               <p className="mb-3 text-xs text-slate-500">
-                Real playlists ranking for “{data.seed}” — getting added to these can drive
-                playlist views.
+                Real playlists ranking for “{data.seed}” — copy a name to reuse it, or open it to
+                request adding your video.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 {data.playlists.map((p) => (
-                  <a
+                  <div
                     key={p.playlistId}
-                    href={p.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex gap-3 rounded-lg border border-ink-line bg-ink-soft p-2 transition hover:border-brand-400/50"
+                    className="flex gap-3 rounded-lg border border-ink-line bg-ink-soft p-2"
                   >
                     {p.thumbnail && (
                       <Image
@@ -400,16 +299,31 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
                         unoptimized
                       />
                     )}
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-slate-100">{p.title}</div>
                       <div className="mt-1 text-xs text-slate-400">{p.channel}</div>
                       {p.videoCount > 0 && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-0.5 text-xs text-slate-500">
                           {p.videoCount.toLocaleString()} videos
                         </div>
                       )}
+                      <div className="mt-2 flex items-center gap-2">
+                        <CopyButton
+                          text={p.title}
+                          label="Copy name"
+                          className="btn-ghost px-2 py-0.5 text-xs"
+                        />
+                        <a
+                          href={p.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-slate-500 hover:text-brand-300"
+                        >
+                          Open ↗
+                        </a>
+                      </div>
                     </div>
-                  </a>
+                  </div>
                 ))}
               </div>
             </div>
@@ -421,14 +335,24 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
                 Top thumbnails (for reference)
               </h2>
               <p className="mb-3 text-xs text-slate-500">
-                Click to play the video and see its real tags.
+                Click to play the video, see its real tags (with rank) and download the thumbnail.
               </p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {data.thumbnails.map((t) => (
+                {data.thumbnails.map((t, i) => (
                   <button
                     key={t.videoId}
                     type="button"
-                    onClick={() => setModal(t)}
+                    onClick={() =>
+                      setOpenVideo({
+                        videoId: t.videoId,
+                        title: t.title,
+                        channel: t.channel,
+                        views: t.views,
+                        thumbnail: t.thumbnail,
+                        url: t.url,
+                        rank: i + 1,
+                      })
+                    }
                     className="group overflow-hidden rounded-lg border border-ink-line text-left"
                   >
                     <Image
@@ -465,7 +389,13 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
         </>
       )}
 
-      {modal && <VideoModal video={modal} onClose={() => setModal(null)} />}
+      {openVideo && (
+        <VideoDetailModal
+          video={openVideo}
+          seed={data?.seed}
+          onClose={() => setOpenVideo(null)}
+        />
+      )}
     </div>
   );
 }

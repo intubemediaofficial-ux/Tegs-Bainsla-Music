@@ -9,12 +9,16 @@ import {
   getVideoTags,
   cleanTags,
   isUsefulTag,
+  rankInUniverse,
+  titleKeywordCounts,
+  seedFromTitle,
 } from "./youtube";
 import { hasYouTubeApiKey, fetchVideoDetails } from "./youtube-api";
 import { scoreKeyword, scoreTitle } from "./scoring";
 import type { VideoLite } from "./types";
 
 const cap = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+const DEVANAGARI = /[\u0900-\u097F]/;
 
 export interface BuiltTitle {
   title: string;
@@ -22,10 +26,23 @@ export interface BuiltTitle {
   reasons: string[];
 }
 
+/** Fisher–Yates shuffle (fresh copy) — used to vary Title Builder output. */
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 /**
- * Title Builder: from just a song name + singer, assemble ready-to-use full
- * titles that embed the highest-demand search keywords (autocomplete order =
- * what people actually search), each scored /100.
+ * Title Builder: from just a song name (+ optional singer) assemble ready-to-use
+ * full titles. It searches YouTube for the song, learns the keywords that the
+ * real ranking titles use, and embeds the highest-demand ones — so titles match
+ * what already ranks. If the input is romanised but the song ranks in Devanagari
+ * we also surface a Hindi-script variant. Output is shuffled so every run gives
+ * fresh titles.
  */
 export async function buildTitles(song: string, singer: string, opts: GenerateOptions = {}) {
   const hl = opts.hl ?? "en";
@@ -35,31 +52,77 @@ export async function buildTitles(song: string, singer: string, opts: GenerateOp
   const seed = [s, singerName].filter(Boolean).join(" ").trim() || s;
   const year = new Date().getFullYear();
 
-  const keywords = await expandKeywords(s || seed, hl, gl);
+  const [keywords, videos] = await Promise.all([
+    expandKeywords(s || seed, hl, gl),
+    searchVideos(seed, hl, gl, 20),
+  ]);
 
   const stop = new Set(
     [...s.toLowerCase().split(/\s+/), ...singerName.toLowerCase().split(/\s+/)].filter(Boolean)
   );
-  const topKw = keywords
-    .filter((k) => isUsefulTag(k) && !stop.has(k) && k !== s.toLowerCase())
-    .slice(0, 8);
+
+  // Keywords that the real ranking titles actually use (strongest signal),
+  // then broaden with autocomplete demand order.
+  const rankingWords = titleKeywordCounts(videos.map((v) => v.title))
+    .filter(
+      (w) => w.count >= 2 && isUsefulTag(w.word) && !stop.has(w.word) && !/^\d+$/.test(w.word)
+    )
+    .map((w) => w.word);
+  const autoWords = keywords.filter(
+    (k) => isUsefulTag(k) && !stop.has(k) && k !== s.toLowerCase()
+  );
+
+  const pool: string[] = [];
+  const poolSeen = new Set<string>();
+  for (const w of [...rankingWords, ...autoWords]) {
+    const n = w.toLowerCase();
+    if (poolSeen.has(n)) continue;
+    poolSeen.add(n);
+    pool.push(w);
+  }
+  const rankOfKw = new Map(pool.map((w, i) => [w.toLowerCase(), i + 1] as const));
 
   const songC = cap(s);
   const singerC = cap(singerName);
-  const kw1 = topKw[0] ? cap(topKw[0]) : "";
-  const kw2 = topKw[1] ? cap(topKw[1]) : "";
 
-  const templates: string[][] = [
-    [songC, singerC, kw1, `New Song ${year}`, "(Official Video)"],
-    [songC, singerC, `Full Video Song ${year}`],
-    [songC, kw1, singerC, `${year}`],
-    [singerC, songC, "Official Video", kw1],
-    [songC, singerC, kw1, kw2, "HD"],
+  // If a romanised song already ranks in Devanagari, offer that script too.
+  const hindiName =
+    !DEVANAGARI.test(s)
+      ? videos
+          .map((v) => seedFromTitle(v.title))
+          .find((t) => DEVANAGARI.test(t) && t.length >= 3) ?? ""
+      : "";
+
+  const chips = shuffle(pool.slice(0, 12)).map((w) => cap(w));
+  const pick = (n: number) => chips.slice(0, n);
+
+  const extras = shuffle([
+    "(Official Video)",
+    "Full Video",
+    `New Song ${year}`,
+    `${year}`,
+    "HD Video",
+    "Official Song",
+  ]);
+
+  const nameParts = [songC, ...(singerC ? [singerC] : [])];
+  const candidates: string[][] = [
+    [...nameParts, chips[0], extras[0]].filter(Boolean),
+    [songC, chips[1], singerC, extras[1]].filter(Boolean),
+    [...nameParts, chips[2], chips[3], `${year}`].filter(Boolean),
+    [singerC, songC, extras[2], chips[0]].filter(Boolean),
+    [songC, extras[3], singerC, chips[4]].filter(Boolean),
+    [...nameParts, ...pick(2), extras[4]].filter(Boolean),
   ];
+  if (hindiName) {
+    const hName = [hindiName, ...(singerC ? [singerC] : [])];
+    candidates.push([...hName, chips[0], extras[0]].filter(Boolean));
+    candidates.push([hindiName, chips[1], singerC, `${year}`].filter(Boolean));
+  }
 
   const seen = new Set<string>();
   const titles: BuiltTitle[] = [];
-  for (const parts of templates) {
+  for (const parts of shuffle(candidates)) {
     const title = parts.filter(Boolean).join(" | ");
     const key = title.toLowerCase();
     if (!title || seen.has(key)) continue;
@@ -69,8 +132,11 @@ export async function buildTitles(song: string, singer: string, opts: GenerateOp
   }
   titles.sort((a, b) => b.score - a.score);
 
-  const keywordsUsed = topKw.slice(0, 6).map((k, i) => ({ tag: k, rank: i + 1 }));
-  return { song: s, singer: singerName, titles, keywordsUsed };
+  const keywordsUsed = pool
+    .slice(0, 6)
+    .map((k) => ({ tag: k, rank: rankOfKw.get(k.toLowerCase()) ?? 0 }));
+
+  return { song: s, singer: singerName, titles: titles.slice(0, 6), keywordsUsed };
 }
 
 export interface GenerateOptions {
@@ -155,6 +221,10 @@ export async function generatePackage(seed: string, opts: GenerateOptions = {}) 
   const hashtags = generateHashtags(seed, keywords, 20);
   const score = scoreKeyword(seed, keywords.length, videos);
 
+  // Rank the premium (real ranking-video) tags against live search demand so
+  // the UI can show each one's #rank. Reuses the autocomplete universe (free).
+  const premiumTags = rankInUniverse(rankedRealTags, keywords).ranked.slice(0, 30);
+
   return {
     seed,
     keywords: limitedTags,
@@ -174,7 +244,7 @@ export async function generatePackage(seed: string, opts: GenerateOptions = {}) 
     })),
     videos,
     score,
-    realTags: rankedRealTags.slice(0, 30),
+    realTags: premiumTags,
   };
 }
 
