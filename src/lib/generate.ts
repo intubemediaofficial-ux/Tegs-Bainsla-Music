@@ -9,6 +9,7 @@ import {
   getVideoTags,
   cleanTags,
 } from "./youtube";
+import { hasYouTubeApiKey, fetchVideoDetails } from "./youtube-api";
 import { scoreKeyword, scoreTitle } from "./scoring";
 import type { VideoLite } from "./types";
 
@@ -39,12 +40,24 @@ export async function generatePackage(seed: string, opts: GenerateOptions = {}) 
   // Harvest each top video's real, cleaned tags once and reuse everywhere
   // (tag box, per-title tags, thumbnail tags).
   const tagsByVideo = new Map<string, string[]>();
-  await Promise.all(
-    videos.slice(0, 8).map(async (v) => {
-      const tags = cleanTags(await getVideoTags(v.videoId));
-      tagsByVideo.set(v.videoId, tags);
-    })
-  );
+  if (hasYouTubeApiKey()) {
+    // One cheap batched API call: accurate fresh view counts + real tags for
+    // every video (the public page hides most videos' tags).
+    const details = await fetchVideoDetails(videos.map((v) => v.videoId));
+    for (const v of videos) {
+      const d = details.get(v.videoId);
+      if (!d) continue;
+      if (d.views > 0) v.views = d.views;
+      tagsByVideo.set(v.videoId, cleanTags(d.tags));
+    }
+  } else {
+    await Promise.all(
+      videos.slice(0, 8).map(async (v) => {
+        const tags = cleanTags(await getVideoTags(v.videoId));
+        tagsByVideo.set(v.videoId, tags);
+      })
+    );
+  }
 
   // Merge autocomplete keywords with real tags harvested from the top videos —
   // these are the "premium" tags that already rank.
@@ -115,6 +128,14 @@ export async function researchKeyword(seed: string, opts: GenerateOptions = {}) 
     searchVideos(seed, hl, gl, 15),
     getSuggestions(seed, hl, gl),
   ]);
+
+  if (hasYouTubeApiKey()) {
+    const details = await fetchVideoDetails(videos.map((v) => v.videoId));
+    for (const v of videos) {
+      const d = details.get(v.videoId);
+      if (d && d.views > 0) v.views = d.views;
+    }
+  }
 
   const score = scoreKeyword(seed, keywords.length, videos);
   return {

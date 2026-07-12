@@ -8,6 +8,7 @@ import {
   titleKeywordCounts,
   DEFAULT_YT_TAGS,
 } from "./youtube";
+import { hasYouTubeApiKey, fetchVideoDetails } from "./youtube-api";
 import type {
   TrackedCategory,
   TrendingSnapshot,
@@ -98,6 +99,14 @@ function extractHashtags(titles: string[]): { tag: string; count: number }[] {
 
 export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSnapshot> {
   const videos = await searchVideos(cat.query, "en", "IN", 25);
+  // Fresh, accurate view counts from the official API (cheap, one batched call).
+  if (hasYouTubeApiKey()) {
+    const details = await fetchVideoDetails(videos.map((v) => v.videoId));
+    for (const v of videos) {
+      const d = details.get(v.videoId);
+      if (d && d.views > 0) v.views = d.views;
+    }
+  }
   const trending = toTrending(videos);
   const risers = trending.slice(0, 8);
 

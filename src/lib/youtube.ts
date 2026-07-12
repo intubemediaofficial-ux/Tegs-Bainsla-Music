@@ -1,4 +1,10 @@
 import type { VideoLite, PlaylistLite } from "./types";
+import {
+  hasYouTubeApiKey,
+  fetchVideoTags,
+  apiSearchVideos,
+  apiSearchPlaylists,
+} from "./youtube-api";
 
 /**
  * YouTube data engine — uses only YouTube's free public endpoints, no API key:
@@ -223,39 +229,44 @@ export async function searchVideos(
   const url =
     `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` +
     `&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
-  let html: string;
+  let html = "";
   try {
     html = await fetchText(url);
   } catch {
-    return [];
+    /* fall through to API fallback */
   }
-  const data = extractInitialData(html);
-  if (!data) return [];
-
-  const raw: RawVideoRenderer[] = [];
-  walkVideos(data, raw);
+  const data = html ? extractInitialData(html) : null;
 
   const seen = new Set<string>();
   const videos: VideoLite[] = [];
-  for (const v of raw) {
-    if (!v.videoId || seen.has(v.videoId)) continue;
-    seen.add(v.videoId);
-    const title = runsText(v.title);
-    if (!title) continue;
-    const channel = runsText(v.ownerText) || runsText(v.longBylineText);
-    const thumbs = v.thumbnail?.thumbnails ?? [];
-    videos.push({
-      videoId: v.videoId,
-      title,
-      channel,
-      views: parseCount(runsText(v.viewCountText)),
-      publishedText: v.publishedTimeText?.simpleText ?? "",
-      thumbnail:
-        thumbs[thumbs.length - 1]?.url ||
-        `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-      url: `https://www.youtube.com/watch?v=${v.videoId}`,
-    });
-    if (videos.length >= limit) break;
+  if (data) {
+    const raw: RawVideoRenderer[] = [];
+    walkVideos(data, raw);
+    for (const v of raw) {
+      if (!v.videoId || seen.has(v.videoId)) continue;
+      seen.add(v.videoId);
+      const title = runsText(v.title);
+      if (!title) continue;
+      const channel = runsText(v.ownerText) || runsText(v.longBylineText);
+      const thumbs = v.thumbnail?.thumbnails ?? [];
+      videos.push({
+        videoId: v.videoId,
+        title,
+        channel,
+        views: parseCount(runsText(v.viewCountText)),
+        publishedText: v.publishedTimeText?.simpleText ?? "",
+        thumbnail:
+          thumbs[thumbs.length - 1]?.url ||
+          `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+        url: `https://www.youtube.com/watch?v=${v.videoId}`,
+      });
+      if (videos.length >= limit) break;
+    }
+  }
+
+  // Scraping is blocked from some IPs (datacenters) — fall back to the official API.
+  if (videos.length === 0 && hasYouTubeApiKey()) {
+    return apiSearchVideos(query, gl, limit);
   }
   return videos;
 }
@@ -310,20 +321,18 @@ export async function searchPlaylists(
   const url =
     `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` +
     `&sp=EgIQAw%3D%3D&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
-  let html: string;
+  let html = "";
   try {
     html = await fetchText(url);
   } catch {
-    return [];
+    /* fall through to API fallback */
   }
-  const data = extractInitialData(html);
-  if (!data) return [];
-
-  const raw: LockupViewModel[] = [];
-  walkLockups(data, raw);
+  const data = html ? extractInitialData(html) : null;
 
   const seen = new Set<string>();
   const out: PlaylistLite[] = [];
+  const raw: LockupViewModel[] = [];
+  if (data) walkLockups(data, raw);
   for (const p of raw) {
     if (p.contentType !== "LOCKUP_CONTENT_TYPE_PLAYLIST") continue;
     const id = p.contentId;
@@ -348,12 +357,23 @@ export async function searchPlaylists(
     });
     if (out.length >= limit) break;
   }
+
+  // Scraping is blocked from some IPs (datacenters) — fall back to the official API.
+  if (out.length === 0 && hasYouTubeApiKey()) {
+    return apiSearchPlaylists(query, gl, limit);
+  }
   return out;
 }
 
 /* ------------------------------- video tags ------------------------------- */
 
 export async function getVideoTags(videoId: string): Promise<string[]> {
+  // Prefer the official API (returns real tags even when the public page hides
+  // them) and fall back to scraping when no key is configured or it returns none.
+  if (hasYouTubeApiKey()) {
+    const apiTags = await fetchVideoTags(videoId);
+    if (apiTags.length) return apiTags;
+  }
   const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=IN`;
   let html: string;
   try {
