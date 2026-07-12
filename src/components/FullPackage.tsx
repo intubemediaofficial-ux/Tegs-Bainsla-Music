@@ -77,27 +77,60 @@ function Bar({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** Modal: plays the video next to its thumbnail and shows its real tags. */
-function VideoModal({ video, onClose }: { video: Thumb; onClose: () => void }) {
-  const [tags, setTags] = useState<string[]>(video.tags ?? []);
+/**
+ * Shows a video's real tags. Uses inline tags if we already have them, otherwise
+ * fetches them on demand (many YouTube videos no longer expose public tags).
+ */
+function VideoTagList({ videoId, inline }: { videoId: string; inline: string[] }) {
+  const [tags, setTags] = useState<string[]>(inline ?? []);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if ((video.tags?.length ?? 0) > 0) return;
+    if ((inline?.length ?? 0) > 0) {
+      setTags(inline);
+      return;
+    }
     let active = true;
     setLoading(true);
-    fetch(`/api/video/tags?video=${video.videoId}`)
+    fetch(`/api/video/tags?video=${videoId}`)
       .then((r) => r.json())
-      .then((j) => {
-        if (active) setTags(j.tags ?? []);
-      })
+      .then((j) => active && setTags(j.tags ?? []))
       .catch(() => {})
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [video]);
+  }, [videoId, inline]);
 
+  return (
+    <>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="label">Tags actually used on this video</div>
+        {tags.length > 0 && (
+          <CopyButton text={tags.join(",")} label="Copy tags" className="btn-ghost px-2 py-1" />
+        )}
+      </div>
+      {loading ? (
+        <p className="text-sm text-slate-400">Loading tags…</p>
+      ) : tags.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          This video exposes no public tags (YouTube hides most videos&apos; tags now).
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {tags.map((t) => (
+            <span key={t} className="chip">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Modal: plays the video next to its thumbnail and shows its real tags. */
+function VideoModal({ video, onClose }: { video: Thumb; onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
@@ -130,31 +163,7 @@ function VideoModal({ video, onClose }: { video: Thumb; onClose: () => void }) {
             </div>
           </div>
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <div className="label">Tags on this video</div>
-              {tags.length > 0 && (
-                <CopyButton
-                  text={tags.join(",")}
-                  label="Copy tags"
-                  className="btn-ghost px-2 py-1"
-                />
-              )}
-            </div>
-            {loading ? (
-              <p className="text-sm text-slate-400">Loading tags…</p>
-            ) : tags.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                This video has no public tags (creator hid them).
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {tags.map((t) => (
-                  <span key={t} className="chip">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
+            <VideoTagList videoId={video.videoId} inline={video.tags} />
           </div>
         </div>
       </div>
@@ -306,33 +315,9 @@ export function FullPackage({ initialQuery = "" }: { initialQuery?: string }) {
                         </span>
                       </div>
                     </div>
-                    {open && (
+                    {open && t.videoId && (
                       <div className="border-t border-ink-line p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <div className="label">
-                            Tags actually used on this ranking video
-                          </div>
-                          {t.tags.length > 0 && (
-                            <CopyButton
-                              text={t.tags.join(",")}
-                              label="Copy tags"
-                              className="btn-ghost px-2 py-1"
-                            />
-                          )}
-                        </div>
-                        {t.tags.length === 0 ? (
-                          <p className="text-sm text-slate-400">
-                            This video has no public tags (creator hid them).
-                          </p>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {t.tags.map((tag) => (
-                              <span key={tag} className="chip">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        <VideoTagList videoId={t.videoId} inline={t.tags} />
                         <a
                           href={`https://www.youtube.com/watch?v=${t.videoId}`}
                           target="_blank"
