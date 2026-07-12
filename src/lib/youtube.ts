@@ -2,6 +2,7 @@ import type { VideoLite, PlaylistLite } from "./types";
 import {
   hasYouTubeApiKey,
   fetchVideoTags,
+  fetchVideoDetails,
   apiSearchVideos,
   apiSearchPlaylists,
 } from "./youtube-api";
@@ -398,6 +399,165 @@ export async function getVideoTags(videoId: string): Promise<string[]> {
     }
   }
   return [];
+}
+
+export interface RankedTag {
+  tag: string;
+  rank: number; // position in the search-popularity (autocomplete) universe
+}
+
+export interface TagRanking {
+  trending: RankedTag[]; // tags people actually search, best (lowest) rank first
+  notTrending: string[]; // tags absent from live search demand
+  suggestions: RankedTag[]; // higher-ranking tags to add that aren't used yet
+}
+
+/** Reduce a noisy video title to a short seed for autocomplete expansion. */
+export function seedFromTitle(title: string): string {
+  return title
+    .split(/[|(\[\]:•]|[-–—]\s|\s[-–—]/)[0]
+    .replace(/#[^\s]+/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 5)
+    .join(" ")
+    .toLowerCase();
+}
+
+/**
+ * Rank tags against live YouTube search demand (autocomplete popularity order).
+ * Tags that appear in what people actually search get a rank number; tags that
+ * don't are flagged not-trending; and the highest-demand unused terms are
+ * returned as better tags to add. Honest proxy — not an official metric.
+ */
+export async function rankTags(
+  tags: string[],
+  seed: string,
+  hl = "en",
+  gl = "IN"
+): Promise<TagRanking> {
+  const universe = await expandKeywords(seed, hl, gl);
+  const rankOf = new Map<string, number>();
+  universe.forEach((u, i) => {
+    if (!rankOf.has(u)) rankOf.set(u, i + 1);
+  });
+
+  const findRank = (norm: string): number | null => {
+    const exact = rankOf.get(norm);
+    if (exact) return exact;
+    if (norm.length < 3) return null;
+    let best: number | null = null;
+    for (let i = 0; i < universe.length; i++) {
+      const u = universe[i];
+      if (u.length < 3) continue;
+      if (u.includes(norm) || norm.includes(u)) {
+        best = i + 1;
+        break;
+      }
+    }
+    return best;
+  };
+
+  const usedNorms = new Set<string>();
+  const trending: RankedTag[] = [];
+  const notTrending: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim();
+    const norm = t.toLowerCase();
+    if (!norm || usedNorms.has(norm)) continue;
+    usedNorms.add(norm);
+    const rank = findRank(norm);
+    if (rank) trending.push({ tag: t, rank });
+    else notTrending.push(t);
+  }
+  trending.sort((a, b) => a.rank - b.rank);
+
+  const suggestions: RankedTag[] = [];
+  for (let i = 0; i < universe.length && suggestions.length < 15; i++) {
+    const u = universe[i];
+    if (usedNorms.has(u) || !isUsefulTag(u)) continue;
+    suggestions.push({ tag: u, rank: i + 1 });
+  }
+
+  return { trending, notTrending, suggestions };
+}
+
+export interface VideoInfo {
+  videoId: string;
+  title: string;
+  channel: string;
+  published: string; // human-readable upload date/time
+  description: string;
+  tags: string[];
+}
+
+function isoToNiceDate(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  return new Date(t).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Full public info for one video — description, real tags and upload date.
+ * Prefers the official API (also works when the watch page hides tags) and
+ * falls back to scraping the watch page.
+ */
+export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
+  if (hasYouTubeApiKey()) {
+    const map = await fetchVideoDetails([videoId]);
+    const d = map.get(videoId);
+    if (d && (d.title || d.description || d.tags.length)) {
+      return {
+        videoId,
+        title: d.title,
+        channel: d.channel,
+        published: isoToNiceDate(d.publishedAt),
+        description: d.description,
+        tags: d.tags,
+      };
+    }
+  }
+
+  const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=IN`;
+  let html = "";
+  try {
+    html = await fetchText(url);
+  } catch {
+    return { videoId, title: "", channel: "", published: "", description: "", tags: [] };
+  }
+
+  const tags = await getVideoTags(videoId);
+  const descMatch = html.match(/"shortDescription":"((?:\\.|[^"\\])*)"/);
+  let description = "";
+  if (descMatch?.[1]) {
+    try {
+      description = JSON.parse(`"${descMatch[1]}"`);
+    } catch {
+      description = descMatch[1];
+    }
+  }
+  const dateMatch =
+    html.match(/"dateText":\{"simpleText":"([^"]+)"/) ||
+    html.match(/<meta itemprop="datePublished" content="([^"]+)"/);
+  const title =
+    html.match(/<meta name="title" content="([^"]*)"/i)?.[1] ??
+    html.match(/"title":"((?:\\.|[^"\\])*)"/)?.[1] ??
+    "";
+  const channel = html.match(/"ownerChannelName":"((?:\\.|[^"\\])*)"/)?.[1] ?? "";
+
+  return {
+    videoId,
+    title,
+    channel,
+    published: dateMatch?.[1] ? isoToNiceDate(dateMatch[1]) : "",
+    description,
+    tags,
+  };
 }
 
 /* --------------------------- builders / generators ------------------------- */
