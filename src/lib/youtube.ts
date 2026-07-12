@@ -1,4 +1,4 @@
-import type { VideoLite } from "./types";
+import type { VideoLite, PlaylistLite } from "./types";
 
 /**
  * YouTube data engine — uses only YouTube's free public endpoints, no API key:
@@ -40,6 +40,43 @@ export const DEFAULT_YT_TAGS = new Set([
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const PREFIXES = ["new", "latest", "best", "top", "old", "full", "official"];
+
+const CURRENT_YEAR = new Date().getFullYear();
+
+/**
+ * Keep only genuinely useful tags:
+ *  - drop YouTube's generic defaults,
+ *  - drop tags tied to a past year (e.g. "song 2024" once it's 2026) — they lose
+ *    search value; current/future years are kept and autocomplete naturally
+ *    surfaces the new year,
+ *  - drop noisy name/keyword pile-ups (too many words / too long).
+ */
+export function isUsefulTag(tag: string): boolean {
+  const t = tag.trim().toLowerCase();
+  if (!t) return false;
+  if (DEFAULT_YT_TAGS.has(t)) return false;
+  const years = t.match(/\b(19|20)\d{2}\b/g);
+  if (years && years.some((y) => parseInt(y, 10) < CURRENT_YEAR)) return false;
+  const words = t.split(/\s+/);
+  if (words.length > 6) return false;
+  if (t.length > 45) return false;
+  return true;
+}
+
+/** Filter + de-duplicate a tag list, preserving order (already ~popularity ranked). */
+export function cleanTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim();
+    if (!isUsefulTag(t)) continue;
+    const norm = t.toLowerCase();
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(t);
+  }
+  return out;
+}
 
 /* ------------------------------- autocomplete ------------------------------ */
 
@@ -223,6 +260,97 @@ export async function searchVideos(
   return videos;
 }
 
+/* -------------------------------- playlists ------------------------------- */
+
+// YouTube now returns playlists in search as `lockupViewModel` nodes.
+interface LockupViewModel {
+  contentId?: string;
+  contentType?: string;
+  metadata?: {
+    lockupMetadataViewModel?: {
+      title?: { content?: string };
+      metadata?: {
+        contentMetadataViewModel?: {
+          metadataRows?: { metadataParts?: { text?: { content?: string } }[] }[];
+        };
+      };
+    };
+  };
+  contentImage?: {
+    collectionThumbnailViewModel?: {
+      primaryThumbnail?: {
+        thumbnailViewModel?: { image?: { sources?: { url?: string }[] } };
+      };
+    };
+  };
+}
+
+function walkLockups(node: unknown, out: LockupViewModel[]): void {
+  if (!node || typeof node !== "object") return;
+  const obj = node as Record<string, unknown>;
+  if (obj.lockupViewModel) out.push(obj.lockupViewModel as LockupViewModel);
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (Array.isArray(val)) val.forEach((v) => walkLockups(v, out));
+    else if (val && typeof val === "object") walkLockups(val, out);
+  }
+}
+
+/**
+ * Real trending playlists for a query — YouTube search filtered to playlists
+ * (sp=EgIQAw%3D%3D). These are the actual playlists a song can be added to for
+ * playlist-driven views. No fabricated data — only what YouTube returns.
+ */
+export async function searchPlaylists(
+  query: string,
+  hl = "en",
+  gl = "IN",
+  limit = 8
+): Promise<PlaylistLite[]> {
+  const url =
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` +
+    `&sp=EgIQAw%3D%3D&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
+  let html: string;
+  try {
+    html = await fetchText(url);
+  } catch {
+    return [];
+  }
+  const data = extractInitialData(html);
+  if (!data) return [];
+
+  const raw: LockupViewModel[] = [];
+  walkLockups(data, raw);
+
+  const seen = new Set<string>();
+  const out: PlaylistLite[] = [];
+  for (const p of raw) {
+    if (p.contentType !== "LOCKUP_CONTENT_TYPE_PLAYLIST") continue;
+    const id = p.contentId;
+    if (!id || seen.has(id)) continue;
+    const meta = p.metadata?.lockupMetadataViewModel;
+    const title = meta?.title?.content;
+    if (!title) continue;
+    seen.add(id);
+    const rows = meta?.metadata?.contentMetadataViewModel?.metadataRows ?? [];
+    const channel = rows[0]?.metadataParts?.[0]?.text?.content ?? "";
+    const countMatch = JSON.stringify(p).match(/(\d[\d,]*)\s+videos?/i);
+    const sources =
+      p.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel?.image
+        ?.sources ?? [];
+    out.push({
+      playlistId: id,
+      title,
+      channel,
+      videoCount: countMatch ? parseCount(countMatch[1]) : 0,
+      thumbnail: sources[sources.length - 1]?.url || "",
+      url: `https://www.youtube.com/playlist?list=${id}`,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /* ------------------------------- video tags ------------------------------- */
 
 export async function getVideoTags(videoId: string): Promise<string[]> {
@@ -289,6 +417,9 @@ export function generateHashtags(seed: string, keywords: string[], max = 20): st
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (raw: string) => {
+    // skip hashtags tied to a past year (e.g. #song2024 when it's 2026)
+    const years = raw.match(/\b(19|20)\d{2}\b/g);
+    if (years && years.some((y) => parseInt(y, 10) < CURRENT_YEAR)) return;
     const tag =
       "#" +
       raw
@@ -346,21 +477,41 @@ export function titleKeywordCounts(titles: string[]): { word: string; count: num
  * (highest views) and returns the strongest ones, plus a couple of optimized
  * variations built from the seed + trending keywords. Not AI-hallucinated.
  */
+export interface TitleSuggestion {
+  title: string;
+  source: "ranking" | "optimized";
+  views?: number;
+  videoId?: string;
+  rank?: number; // position in the live YouTube search results
+}
+
 export function suggestTitles(
   seed: string,
   videos: VideoLite[],
   keywords: string[],
   max = 6
-): { title: string; source: "ranking" | "optimized"; views?: number }[] {
-  const out: { title: string; source: "ranking" | "optimized"; views?: number }[] = [];
+): TitleSuggestion[] {
+  const out: TitleSuggestion[] = [];
   const seen = new Set<string>();
+
+  // remember each video's original position in the search results = its rank
+  const rankOf = new Map<string, number>();
+  videos.forEach((v, i) => {
+    if (!rankOf.has(v.videoId)) rankOf.set(v.videoId, i + 1);
+  });
 
   const ranked = [...videos].sort((a, b) => b.views - a.views);
   for (const v of ranked) {
     const key = v.title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ title: v.title, source: "ranking", views: v.views });
+    out.push({
+      title: v.title,
+      source: "ranking",
+      views: v.views,
+      videoId: v.videoId,
+      rank: rankOf.get(v.videoId),
+    });
     if (out.length >= max - 2) break;
   }
 
