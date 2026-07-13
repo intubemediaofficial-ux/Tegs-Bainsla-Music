@@ -48,6 +48,24 @@ export const DEFAULT_YT_TAGS = new Set([
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const PREFIXES = ["new", "latest", "best", "top", "old", "full", "official"];
 
+// Devanagari (Hindi / Marwari / Rajasthani …) — the a–z probes are useless for
+// these scripts, so we probe with common Hindi/English music expanders instead.
+const DEVANAGARI = /[\u0900-\u097F]/;
+const HINDI_EXPANDERS = [
+  "गाना",
+  "भजन",
+  "सॉन्ग",
+  "न्यू",
+  "डीजे",
+  "स्टेटस",
+  "वीडियो",
+  "डांस",
+  "song",
+  "dj",
+  "new",
+  "status",
+];
+
 const CURRENT_YEAR = new Date().getFullYear();
 
 /**
@@ -120,11 +138,17 @@ export async function expandKeywords(
   const base = seed.trim().toLowerCase();
   if (!base) return [];
 
-  const probes = [
-    base,
-    ...LETTERS.slice(0, depth).map((c) => `${base} ${c}`),
-    ...PREFIXES.map((p) => `${p} ${base}`),
-  ];
+  const probes = DEVANAGARI.test(base)
+    ? [
+        base,
+        ...HINDI_EXPANDERS.map((c) => `${base} ${c}`),
+        ...HINDI_EXPANDERS.slice(0, 4).map((c) => `${c} ${base}`),
+      ]
+    : [
+        base,
+        ...LETTERS.slice(0, depth).map((c) => `${base} ${c}`),
+        ...PREFIXES.map((p) => `${p} ${base}`),
+      ];
 
   const results = await Promise.all(probes.map((p) => getSuggestions(p, hl, gl)));
 
@@ -417,12 +441,65 @@ export function seedFromTitle(title: string): string {
   return title
     .split(/[|(\[\]:•]|[-–—]\s|\s[-–—]/)[0]
     .replace(/#[^\s]+/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
     .trim()
     .split(/\s+/)
     .slice(0, 5)
     .join(" ")
     .toLowerCase();
+}
+
+/** Trim any phrase (title or tag) to a short, clean autocomplete seed. */
+function shortSeed(s: string): string {
+  return s
+    .replace(/#[^\s]+/g, "")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 4)
+    .join(" ")
+    .toLowerCase();
+}
+
+/**
+ * Pick a handful of good autocomplete seeds for a video: the title seed plus a
+ * couple derived from the video's own tags. Latin phrases are preferred (their
+ * autocomplete is far richer than transliterated Devanagari), so a Rajasthani /
+ * Hindi song whose tags are romanised still gets a real ranked universe.
+ */
+function deriveSeeds(seed: string, tags: string[]): string[] {
+  const out: string[] = [];
+  const push = (s: string) => {
+    const v = shortSeed(s);
+    if (v && v.length >= 3 && !out.includes(v)) out.push(v);
+  };
+
+  const seedIsLatin = !!seed && /[a-z]/i.test(seed) && !DEVANAGARI.test(seed);
+
+  // Prefer the most *specific* short latin phrase as the primary seed (the song
+  // name is usually 1–3 words, e.g. "chomaso lagyo re"), so the video's own tags
+  // rank with sensible low numbers instead of collapsing onto a broad category.
+  const latinShort = tags
+    .filter((t) => /[a-z]/i.test(t) && !DEVANAGARI.test(t))
+    .map((t) => shortSeed(t))
+    .filter((s) => s.length >= 3)
+    .sort((a, b) => {
+      const wa = a.split(/\s+/).length;
+      const wb = b.split(/\s+/).length;
+      return wa - wb || a.length - b.length;
+    });
+
+  if (seedIsLatin) push(seed);
+  for (const s of latinShort) {
+    push(s);
+    if (out.length >= 3) break;
+  }
+  if (!seedIsLatin && seed) push(seed); // Hindi/other-script seed as enrichment
+  for (const t of tags) {
+    if (out.length >= 4) break;
+    push(t);
+  }
+  return out.slice(0, 4);
 }
 
 /**
@@ -431,19 +508,15 @@ export function seedFromTitle(title: string): string {
  * don't are flagged not-trending; and the highest-demand unused terms are
  * returned as better tags to add. Honest proxy — not an official metric.
  */
-export async function rankTags(
-  tags: string[],
-  seed: string,
-  hl = "en",
-  gl = "IN"
-): Promise<TagRanking> {
-  const universe = await expandKeywords(seed, hl, gl);
+/** Build a rank lookup + fuzzy finder over a search-popularity universe. */
+function makeRanker(universe: string[]) {
   const rankOf = new Map<string, number>();
   universe.forEach((u, i) => {
     if (!rankOf.has(u)) rankOf.set(u, i + 1);
   });
+  const wordsOf = (s: string) => new Set(s.split(/\s+/).filter((w) => w.length >= 3));
 
-  const findRank = (norm: string): number | null => {
+  return (norm: string): number | null => {
     const exact = rankOf.get(norm);
     if (exact) return exact;
     if (norm.length < 3) return null;
@@ -461,22 +534,78 @@ export async function rankTags(
         }
       }
     }
-    return bestRank;
-  };
+    if (bestRank) return bestRank;
 
-  const usedNorms = new Set<string>();
-  const trending: RankedTag[] = [];
-  const notTrending: string[] = [];
+    // Last resort: share meaningful words with a searched term (handles word
+    // re-orderings and transliteration noise). Best (lowest) rank wins.
+    const tw = wordsOf(norm);
+    if (tw.size === 0) return null;
+    for (let i = 0; i < universe.length; i++) {
+      const uw = wordsOf(universe[i]);
+      let shared = 0;
+      for (const w of tw) if (uw.has(w)) shared++;
+      if (shared >= 2 || (shared === 1 && tw.size === 1)) return i + 1;
+    }
+    return null;
+  };
+}
+
+/**
+ * Rank a list of tags against an already-computed search-popularity universe
+ * (autocomplete order). Returns ranked tags (best first) + the ones with no
+ * measurable demand. Pure/synchronous — reuse an existing keyword universe.
+ */
+export function rankInUniverse(
+  tags: string[],
+  universe: string[]
+): { ranked: RankedTag[]; unranked: string[] } {
+  const findRank = makeRanker(universe);
+  const used = new Set<string>();
+  const ranked: RankedTag[] = [];
+  const unranked: string[] = [];
   for (const raw of tags) {
     const t = raw.trim();
     const norm = t.toLowerCase();
-    if (!norm || usedNorms.has(norm)) continue;
-    usedNorms.add(norm);
+    if (!norm || used.has(norm)) continue;
+    used.add(norm);
     const rank = findRank(norm);
-    if (rank) trending.push({ tag: t, rank });
-    else notTrending.push(t);
+    if (rank) ranked.push({ tag: t, rank });
+    else unranked.push(t);
   }
-  trending.sort((a, b) => a.rank - b.rank);
+  ranked.sort((a, b) => a.rank - b.rank);
+  return { ranked, unranked };
+}
+
+export async function rankTags(
+  tags: string[],
+  seed: string,
+  hl = "en",
+  gl = "IN"
+): Promise<TagRanking> {
+  // Build the search-demand universe from several seeds (title + the video's
+  // own tags, latin-first). The first seed is expanded fully; the rest are
+  // enriched with their direct suggestions so their tags/relatives get ranked.
+  const seeds = deriveSeeds(seed, tags);
+  const primary = seeds[0] ?? shortSeed(seed);
+  const [mainUniverse, ...extraLists] = await Promise.all([
+    expandKeywords(primary, hl, gl),
+    ...seeds.slice(1).map((s) => expandKeywords(s, hl, gl, 8)),
+  ]);
+
+  const universe: string[] = [];
+  const uniSeen = new Set<string>();
+  for (const list of [mainUniverse, ...extraLists]) {
+    for (const u of list) {
+      const norm = u.trim().toLowerCase();
+      if (!norm || uniSeen.has(norm)) continue;
+      uniSeen.add(norm);
+      universe.push(norm);
+    }
+  }
+
+  const { ranked: trending, unranked: notTrending } = rankInUniverse(tags, universe);
+  const usedNorms = new Set(trending.concat().map((t) => t.tag.toLowerCase()));
+  for (const t of notTrending) usedNorms.add(t.toLowerCase());
 
   const suggestions: RankedTag[] = [];
   for (let i = 0; i < universe.length && suggestions.length < 15; i++) {
@@ -647,7 +776,7 @@ export function titleKeywordCounts(titles: string[]): { word: string; count: num
   for (const t of titles) {
     const words = t
       .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s#]/gu, " ")
+      .replace(/[^\p{L}\p{N}\p{M}\s#]/gu, " ")
       .split(/\s+/)
       .filter((w) => w.length > 2 && !TITLE_STOP.has(w));
     for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);

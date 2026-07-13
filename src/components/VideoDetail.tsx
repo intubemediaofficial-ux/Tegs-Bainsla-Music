@@ -129,16 +129,24 @@ export function VideoDetailModal({
                 </button>
               )}
             </div>
-            {video.url && (
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <a
-                href={video.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-block text-xs text-slate-500 hover:text-brand-300"
+                href={`/api/video/thumbnail?video=${video.videoId}`}
+                className="text-xs text-brand-300 hover:underline"
               >
-                Open on YouTube ↗
+                ⬇ Download thumbnail
               </a>
-            )}
+              {video.url && (
+                <a
+                  href={video.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-slate-500 hover:text-brand-300"
+                >
+                  Open on YouTube ↗
+                </a>
+              )}
+            </div>
 
             <div className="mt-3">
               <div className="label">Description</div>

@@ -61,7 +61,7 @@ export function TitleAnalyzer() {
               className="input"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="DG Mawai New Rasiya 2026 | Official Video"
+              placeholder="Paste your full video title"
             />
           </div>
           <div>
@@ -70,7 +70,7 @@ export function TitleAnalyzer() {
               className="input"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="dg mawai"
+              placeholder="main keyword"
             />
           </div>
           <button className="btn-primary" disabled={loading}>
@@ -160,7 +160,7 @@ function TitleBuilder() {
               className="input"
               value={song}
               onChange={(e) => setSong(e.target.value)}
-              placeholder="Kabootar Bole Gutru Gutru"
+              placeholder="Type the song name"
             />
           </div>
           <div>
@@ -169,7 +169,7 @@ function TitleBuilder() {
               className="input"
               value={singer}
               onChange={(e) => setSinger(e.target.value)}
-              placeholder="DG Mawai"
+              placeholder="Singer / artist name"
             />
           </div>
         </div>
