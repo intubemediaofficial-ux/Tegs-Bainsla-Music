@@ -18,7 +18,7 @@ interface Result {
   suggestions: RankedTag[];
 }
 
-export function CompetitorTags() {
+export function CompetitorTags({ compact = false }: { compact?: boolean } = {}) {
   const [video, setVideo] = useState("");
   const [data, setData] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
@@ -47,12 +47,15 @@ export function CompetitorTags() {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={run} className="card flex gap-3">
+      <form
+        onSubmit={run}
+        className={`flex flex-col gap-3 sm:flex-row ${compact ? "" : "card"}`}
+      >
         <input
-          className="input"
+          className="input flex-1"
           value={video}
           onChange={(e) => setVideo(e.target.value)}
-          placeholder="Competitor video URL or ID"
+          placeholder="Paste any YouTube video link or ID"
         />
         <button className="btn-primary" disabled={loading}>
           {loading ? "Reading…" : "Get tags"}
