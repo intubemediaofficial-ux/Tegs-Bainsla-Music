@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bainsla Music Tags — YouTube Tag, Title & Trend Studio",
-  "version": "1.0.0",
-  "description": "Real high-rank titles, premium 500-char tags, hashtags & thumbnails for any singer/song. Auto-suggests tags inside YouTube Studio. Connects to your Bainsla Tags dashboard.",
+  "version": "1.1.0",
+  "description": "Ranked tags, real ranking titles, hashtags and live 60-min/48-hour view pulse for the YouTube video you are watching.",
   "action": {
     "default_title": "Bainsla Music Tags",
     "default_popup": "popup/popup.html",
@@ -14,7 +14,8 @@
   },
   "options_page": "options/options.html",
   "permissions": ["storage"],
-  "host_permissions": ["*://*.youtube.com/*", "https://*/*", "http://localhost/*"],
+  "host_permissions": ["*://*.youtube.com/*", "https://tag.bainslamusic.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*"],
   "content_scripts": [
     {
       "matches": ["*://studio.youtube.com/*"],
@@ -23,8 +24,8 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://www.youtube.com/watch*"],
-      "js": ["content/shared.js", "content/watch.js"],
+      "matches": ["*://www.youtube.com/*"],
+      "js": ["content/shared.js", "content/watch.js", "content/pulse.js"],
       "css": ["content/panel.css"],
       "run_at": "document_idle"
     }

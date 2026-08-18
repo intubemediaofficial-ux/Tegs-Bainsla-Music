@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CopyButton } from "./Copy";
+import { VideoDetailModal, type VideoRef } from "./VideoDetail";
 
 interface VideoRow {
   videoId: string;
@@ -27,6 +28,7 @@ export function KeywordResearch() {
   const [data, setData] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openVideo, setOpenVideo] = useState<VideoRef | null>(null);
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
@@ -83,8 +85,40 @@ export function KeywordResearch() {
             ))}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <ChipCard title="Related keywords" items={data.related} />
+          <div className="card">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                Related keywords (search rank)
+              </h3>
+              {data.related.length > 0 && (
+                <CopyButton
+                  text={data.related.join(", ")}
+                  label="Copy all"
+                  className="btn-ghost px-2 py-1"
+                />
+              )}
+            </div>
+            {data.related.length === 0 ? (
+              <span className="text-xs text-slate-500">None found.</span>
+            ) : (
+              <ol className="grid gap-1 sm:grid-cols-2">
+                {data.related.map((k, i) => (
+                  <li
+                    key={k}
+                    className="flex items-center gap-2 rounded-lg border border-ink-line bg-ink-soft px-2 py-1 text-sm"
+                  >
+                    <span className="w-8 shrink-0 rounded bg-brand-600/30 text-center text-xs font-bold text-brand-200">
+                      #{i + 1}
+                    </span>
+                    <span className="flex-1 truncate text-slate-200">{k}</span>
+                    <CopyButton text={k} label="Copy" className="btn-ghost px-1.5 py-0.5 text-xs" />
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
             <ChipCard title="Questions" items={data.questions} />
             <ChipCard title="Hashtags" items={data.hashtags} />
           </div>
@@ -96,17 +130,29 @@ export function KeywordResearch() {
               </h2>
               <CopyButton text={data.keywords.join(", ")} label="Copy all keywords" />
             </div>
+            <p className="mb-2 text-xs text-slate-500">
+              Click a title to open its description + real tags (with search rank) — it won&apos;t
+              jump to YouTube.
+            </p>
             <div className="space-y-2">
               {data.videos.map((v, i) => (
-                <a
+                <button
                   key={v.videoId}
-                  href={v.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-3 rounded-lg border border-ink-line bg-ink-soft p-2 text-sm hover:border-brand-500"
+                  onClick={() =>
+                    setOpenVideo({
+                      videoId: v.videoId,
+                      title: v.title,
+                      channel: v.channel,
+                      views: v.views,
+                      publishedText: v.publishedText,
+                      url: v.url,
+                      rank: i + 1,
+                    })
+                  }
+                  className="flex w-full items-center gap-3 rounded-lg border border-ink-line bg-ink-soft p-2 text-left text-sm hover:border-brand-500"
                 >
                   <span className="w-6 text-center text-slate-500">{i + 1}</span>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-slate-100">{v.title}</div>
                     <div className="text-xs text-slate-500">
                       {v.channel} · {v.views.toLocaleString()} views · {v.publishedText}
@@ -123,11 +169,19 @@ export function KeywordResearch() {
                   >
                     {v.strength}
                   </span>
-                </a>
+                </button>
               ))}
             </div>
           </div>
         </>
+      )}
+
+      {openVideo && (
+        <VideoDetailModal
+          video={openVideo}
+          seed={data?.seed || query}
+          onClose={() => setOpenVideo(null)}
+        />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import type { PlanId } from "./plans";
+import type { ViralWhy } from "./why-viral";
 
 export interface User {
   id: string;
@@ -47,10 +48,33 @@ export interface VideoLite {
   url: string;
 }
 
+export interface PlaylistLite {
+  playlistId: string;
+  title: string;
+  channel: string;
+  videoCount: number;
+  thumbnail: string;
+  url: string;
+}
+
 export interface TrendingVideo extends VideoLite {
   ageHours: number;
   velocity: number; // views per hour since publish
   viralScore: number; // 0-100
+  /** Public-signal estimate of what is driving it (top risers only). */
+  why?: ViralWhy;
+}
+
+/** Trending videos for one keyword related to the searched term. */
+export interface RelatedTrend {
+  query: string;
+  videos: TrendingVideo[];
+}
+
+/** A channel competing for the same searches, with its best current upload. */
+export interface CompetitorTrend {
+  channel: string;
+  videos: TrendingVideo[];
 }
 
 export interface TrendingSnapshot {
@@ -59,6 +83,9 @@ export interface TrendingSnapshot {
   query: string;
   updatedAt: string;
   videos: TrendingVideo[];
+  /** Only filled for on-demand searches (keyword / singer / channel). */
+  related?: RelatedTrend[];
+  competitors?: CompetitorTrend[];
   // Why-viral aggregate insight across the fastest-rising videos
   insight: {
     topTags: { tag: string; count: number }[];

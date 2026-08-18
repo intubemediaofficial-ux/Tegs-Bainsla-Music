@@ -1,4 +1,11 @@
-import type { VideoLite } from "./types";
+import type { VideoLite, PlaylistLite } from "./types";
+import {
+  hasYouTubeApiKey,
+  fetchVideoTags,
+  fetchVideoDetails,
+  apiSearchVideos,
+  apiSearchPlaylists,
+} from "./youtube-api";
 
 /**
  * YouTube data engine — uses only YouTube's free public endpoints, no API key:
@@ -41,6 +48,61 @@ export const DEFAULT_YT_TAGS = new Set([
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const PREFIXES = ["new", "latest", "best", "top", "old", "full", "official"];
 
+// Devanagari (Hindi / Marwari / Rajasthani …) — the a–z probes are useless for
+// these scripts, so we probe with common Hindi/English music expanders instead.
+const DEVANAGARI = /[\u0900-\u097F]/;
+const HINDI_EXPANDERS = [
+  "गाना",
+  "भजन",
+  "सॉन्ग",
+  "न्यू",
+  "डीजे",
+  "स्टेटस",
+  "वीडियो",
+  "डांस",
+  "song",
+  "dj",
+  "new",
+  "status",
+];
+
+const CURRENT_YEAR = new Date().getFullYear();
+
+/**
+ * Keep only genuinely useful tags:
+ *  - drop YouTube's generic defaults,
+ *  - drop tags tied to a past year (e.g. "song 2024" once it's 2026) — they lose
+ *    search value; current/future years are kept and autocomplete naturally
+ *    surfaces the new year,
+ *  - drop noisy name/keyword pile-ups (too many words / too long).
+ */
+export function isUsefulTag(tag: string): boolean {
+  const t = tag.trim().toLowerCase();
+  if (!t) return false;
+  if (DEFAULT_YT_TAGS.has(t)) return false;
+  const years = t.match(/\b(19|20)\d{2}\b/g);
+  if (years && years.some((y) => parseInt(y, 10) < CURRENT_YEAR)) return false;
+  const words = t.split(/\s+/);
+  if (words.length > 6) return false;
+  if (t.length > 45) return false;
+  return true;
+}
+
+/** Filter + de-duplicate a tag list, preserving order (already ~popularity ranked). */
+export function cleanTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim();
+    if (!isUsefulTag(t)) continue;
+    const norm = t.toLowerCase();
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(t);
+  }
+  return out;
+}
+
 /* ------------------------------- autocomplete ------------------------------ */
 
 export async function getSuggestions(
@@ -76,11 +138,17 @@ export async function expandKeywords(
   const base = seed.trim().toLowerCase();
   if (!base) return [];
 
-  const probes = [
-    base,
-    ...LETTERS.slice(0, depth).map((c) => `${base} ${c}`),
-    ...PREFIXES.map((p) => `${p} ${base}`),
-  ];
+  const probes = DEVANAGARI.test(base)
+    ? [
+        base,
+        ...HINDI_EXPANDERS.map((c) => `${base} ${c}`),
+        ...HINDI_EXPANDERS.slice(0, 4).map((c) => `${c} ${base}`),
+      ]
+    : [
+        base,
+        ...LETTERS.slice(0, depth).map((c) => `${base} ${c}`),
+        ...PREFIXES.map((p) => `${p} ${base}`),
+      ];
 
   const results = await Promise.all(probes.map((p) => getSuggestions(p, hl, gl)));
 
@@ -177,55 +245,178 @@ function runsText(r?: { runs?: { text: string }[]; simpleText?: string }): strin
   return "";
 }
 
+/** YouTube "Upload date" search filters (sp=), used to keep trends fresh. */
+const UPLOAD_FILTER = {
+  today: "EgIIAg%3D%3D",
+  week: "EgIIAw%3D%3D",
+  month: "EgIIBA%3D%3D",
+} as const;
+
+function uploadFilterFor(days: number): string {
+  if (days <= 1) return UPLOAD_FILTER.today;
+  if (days <= 7) return UPLOAD_FILTER.week;
+  return UPLOAD_FILTER.month;
+}
+
 export async function searchVideos(
   query: string,
   hl = "en",
   gl = "IN",
-  limit = 20
+  limit = 20,
+  opts: { recentDays?: number } = {}
 ): Promise<VideoLite[]> {
+  const sp = opts.recentDays ? `&sp=${uploadFilterFor(opts.recentDays)}` : "";
   const url =
     `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` +
-    `&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
-  let html: string;
+    `&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}${sp}`;
+  let html = "";
   try {
     html = await fetchText(url);
   } catch {
-    return [];
+    /* fall through to API fallback */
   }
-  const data = extractInitialData(html);
-  if (!data) return [];
-
-  const raw: RawVideoRenderer[] = [];
-  walkVideos(data, raw);
+  const data = html ? extractInitialData(html) : null;
 
   const seen = new Set<string>();
   const videos: VideoLite[] = [];
-  for (const v of raw) {
-    if (!v.videoId || seen.has(v.videoId)) continue;
-    seen.add(v.videoId);
-    const title = runsText(v.title);
-    if (!title) continue;
-    const channel = runsText(v.ownerText) || runsText(v.longBylineText);
-    const thumbs = v.thumbnail?.thumbnails ?? [];
-    videos.push({
-      videoId: v.videoId,
-      title,
-      channel,
-      views: parseCount(runsText(v.viewCountText)),
-      publishedText: v.publishedTimeText?.simpleText ?? "",
-      thumbnail:
-        thumbs[thumbs.length - 1]?.url ||
-        `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-      url: `https://www.youtube.com/watch?v=${v.videoId}`,
+  if (data) {
+    const raw: RawVideoRenderer[] = [];
+    walkVideos(data, raw);
+    for (const v of raw) {
+      if (!v.videoId || seen.has(v.videoId)) continue;
+      seen.add(v.videoId);
+      const title = runsText(v.title);
+      if (!title) continue;
+      const channel = runsText(v.ownerText) || runsText(v.longBylineText);
+      const thumbs = v.thumbnail?.thumbnails ?? [];
+      videos.push({
+        videoId: v.videoId,
+        title,
+        channel,
+        views: parseCount(runsText(v.viewCountText)),
+        publishedText: v.publishedTimeText?.simpleText ?? "",
+        thumbnail:
+          thumbs[thumbs.length - 1]?.url ||
+          `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+        url: `https://www.youtube.com/watch?v=${v.videoId}`,
+      });
+      if (videos.length >= limit) break;
+    }
+  }
+
+  // Scraping is blocked from some IPs (datacenters) — fall back to the official API.
+  if (videos.length === 0 && hasYouTubeApiKey()) {
+    return apiSearchVideos(query, gl, limit, {
+      publishedAfterDays: opts.recentDays,
+      order: opts.recentDays ? "viewCount" : undefined,
     });
-    if (videos.length >= limit) break;
   }
   return videos;
+}
+
+/* -------------------------------- playlists ------------------------------- */
+
+// YouTube now returns playlists in search as `lockupViewModel` nodes.
+interface LockupViewModel {
+  contentId?: string;
+  contentType?: string;
+  metadata?: {
+    lockupMetadataViewModel?: {
+      title?: { content?: string };
+      metadata?: {
+        contentMetadataViewModel?: {
+          metadataRows?: { metadataParts?: { text?: { content?: string } }[] }[];
+        };
+      };
+    };
+  };
+  contentImage?: {
+    collectionThumbnailViewModel?: {
+      primaryThumbnail?: {
+        thumbnailViewModel?: { image?: { sources?: { url?: string }[] } };
+      };
+    };
+  };
+}
+
+function walkLockups(node: unknown, out: LockupViewModel[]): void {
+  if (!node || typeof node !== "object") return;
+  const obj = node as Record<string, unknown>;
+  if (obj.lockupViewModel) out.push(obj.lockupViewModel as LockupViewModel);
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (Array.isArray(val)) val.forEach((v) => walkLockups(v, out));
+    else if (val && typeof val === "object") walkLockups(val, out);
+  }
+}
+
+/**
+ * Real trending playlists for a query — YouTube search filtered to playlists
+ * (sp=EgIQAw%3D%3D). These are the actual playlists a song can be added to for
+ * playlist-driven views. No fabricated data — only what YouTube returns.
+ */
+export async function searchPlaylists(
+  query: string,
+  hl = "en",
+  gl = "IN",
+  limit = 8
+): Promise<PlaylistLite[]> {
+  const url =
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` +
+    `&sp=EgIQAw%3D%3D&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
+  let html = "";
+  try {
+    html = await fetchText(url);
+  } catch {
+    /* fall through to API fallback */
+  }
+  const data = html ? extractInitialData(html) : null;
+
+  const seen = new Set<string>();
+  const out: PlaylistLite[] = [];
+  const raw: LockupViewModel[] = [];
+  if (data) walkLockups(data, raw);
+  for (const p of raw) {
+    if (p.contentType !== "LOCKUP_CONTENT_TYPE_PLAYLIST") continue;
+    const id = p.contentId;
+    if (!id || seen.has(id)) continue;
+    const meta = p.metadata?.lockupMetadataViewModel;
+    const title = meta?.title?.content;
+    if (!title) continue;
+    seen.add(id);
+    const rows = meta?.metadata?.contentMetadataViewModel?.metadataRows ?? [];
+    const channel = rows[0]?.metadataParts?.[0]?.text?.content ?? "";
+    const countMatch = JSON.stringify(p).match(/(\d[\d,]*)\s+videos?/i);
+    const sources =
+      p.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel?.image
+        ?.sources ?? [];
+    out.push({
+      playlistId: id,
+      title,
+      channel,
+      videoCount: countMatch ? parseCount(countMatch[1]) : 0,
+      thumbnail: sources[sources.length - 1]?.url || "",
+      url: `https://www.youtube.com/playlist?list=${id}`,
+    });
+    if (out.length >= limit) break;
+  }
+
+  // Scraping is blocked from some IPs (datacenters) — fall back to the official API.
+  if (out.length === 0 && hasYouTubeApiKey()) {
+    return apiSearchPlaylists(query, gl, limit);
+  }
+  return out;
 }
 
 /* ------------------------------- video tags ------------------------------- */
 
 export async function getVideoTags(videoId: string): Promise<string[]> {
+  // Prefer the official API (returns real tags even when the public page hides
+  // them) and fall back to scraping when no key is configured or it returns none.
+  if (hasYouTubeApiKey()) {
+    const apiTags = await fetchVideoTags(videoId);
+    if (apiTags.length) return apiTags;
+  }
   const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=IN`;
   let html: string;
   try {
@@ -250,6 +441,279 @@ export async function getVideoTags(videoId: string): Promise<string[]> {
     }
   }
   return [];
+}
+
+export interface RankedTag {
+  tag: string;
+  rank: number; // position in the search-popularity (autocomplete) universe
+}
+
+export interface TagRanking {
+  trending: RankedTag[]; // tags people actually search, best (lowest) rank first
+  notTrending: string[]; // tags absent from live search demand
+  suggestions: RankedTag[]; // higher-ranking tags to add that aren't used yet
+}
+
+/** Reduce a noisy video title to a short seed for autocomplete expansion. */
+export function seedFromTitle(title: string): string {
+  return title
+    .split(/[|(\[\]:•]|[-–—]\s|\s[-–—]/)[0]
+    .replace(/#[^\s]+/g, "")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 5)
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Trim any phrase (title or tag) to a short, clean autocomplete seed. */
+export function shortSeedOf(s: string): string {
+  return shortSeed(s);
+}
+
+function shortSeed(s: string): string {
+  return s
+    .replace(/#[^\s]+/g, "")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 4)
+    .join(" ")
+    .toLowerCase();
+}
+
+/**
+ * Pick a handful of good autocomplete seeds for a video: the title seed plus a
+ * couple derived from the video's own tags. Latin phrases are preferred (their
+ * autocomplete is far richer than transliterated Devanagari), so a Rajasthani /
+ * Hindi song whose tags are romanised still gets a real ranked universe.
+ */
+function deriveSeeds(seed: string, tags: string[]): string[] {
+  const out: string[] = [];
+  const push = (s: string) => {
+    const v = shortSeed(s);
+    if (v && v.length >= 3 && !out.includes(v)) out.push(v);
+  };
+
+  const seedIsLatin = !!seed && /[a-z]/i.test(seed) && !DEVANAGARI.test(seed);
+
+  // Prefer the most *specific* short latin phrase as the primary seed (the song
+  // name is usually 1–3 words, e.g. "chomaso lagyo re"), so the video's own tags
+  // rank with sensible low numbers instead of collapsing onto a broad category.
+  const latinShort = tags
+    .filter((t) => /[a-z]/i.test(t) && !DEVANAGARI.test(t))
+    .map((t) => shortSeed(t))
+    .filter((s) => s.length >= 3)
+    .sort((a, b) => {
+      const wa = a.split(/\s+/).length;
+      const wb = b.split(/\s+/).length;
+      return wa - wb || a.length - b.length;
+    });
+
+  if (seedIsLatin) push(seed);
+  for (const s of latinShort) {
+    push(s);
+    if (out.length >= 3) break;
+  }
+  if (!seedIsLatin && seed) push(seed); // Hindi/other-script seed as enrichment
+  for (const t of tags) {
+    if (out.length >= 4) break;
+    push(t);
+  }
+  return out.slice(0, 4);
+}
+
+/**
+ * Rank tags against live YouTube search demand (autocomplete popularity order).
+ * Tags that appear in what people actually search get a rank number; tags that
+ * don't are flagged not-trending; and the highest-demand unused terms are
+ * returned as better tags to add. Honest proxy — not an official metric.
+ */
+/** Build a rank lookup + fuzzy finder over a search-popularity universe. */
+function makeRanker(universe: string[]) {
+  const rankOf = new Map<string, number>();
+  universe.forEach((u, i) => {
+    if (!rankOf.has(u)) rankOf.set(u, i + 1);
+  });
+  const wordsOf = (s: string) => new Set(s.split(/\s+/).filter((w) => w.length >= 3));
+
+  return (norm: string): number | null => {
+    const exact = rankOf.get(norm);
+    if (exact) return exact;
+    if (norm.length < 3) return null;
+    // Pick the most *specific* matching search term (longest overlap), so tags
+    // don't all collapse onto the generic seed at rank #1.
+    let bestRank: number | null = null;
+    let bestLen = -1;
+    for (let i = 0; i < universe.length; i++) {
+      const u = universe[i];
+      if (u.length < 3) continue;
+      if (u.includes(norm) || norm.includes(u)) {
+        if (u.length > bestLen) {
+          bestLen = u.length;
+          bestRank = i + 1;
+        }
+      }
+    }
+    if (bestRank) return bestRank;
+
+    // Last resort: share meaningful words with a searched term (handles word
+    // re-orderings and transliteration noise). Best (lowest) rank wins.
+    const tw = wordsOf(norm);
+    if (tw.size === 0) return null;
+    for (let i = 0; i < universe.length; i++) {
+      const uw = wordsOf(universe[i]);
+      let shared = 0;
+      for (const w of tw) if (uw.has(w)) shared++;
+      if (shared >= 2 || (shared === 1 && tw.size === 1)) return i + 1;
+    }
+    return null;
+  };
+}
+
+/**
+ * Rank a list of tags against an already-computed search-popularity universe
+ * (autocomplete order). Returns ranked tags (best first) + the ones with no
+ * measurable demand. Pure/synchronous — reuse an existing keyword universe.
+ */
+export function rankInUniverse(
+  tags: string[],
+  universe: string[]
+): { ranked: RankedTag[]; unranked: string[] } {
+  const findRank = makeRanker(universe);
+  const used = new Set<string>();
+  const ranked: RankedTag[] = [];
+  const unranked: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim();
+    const norm = t.toLowerCase();
+    if (!norm || used.has(norm)) continue;
+    used.add(norm);
+    const rank = findRank(norm);
+    if (rank) ranked.push({ tag: t, rank });
+    else unranked.push(t);
+  }
+  ranked.sort((a, b) => a.rank - b.rank);
+  return { ranked, unranked };
+}
+
+export async function rankTags(
+  tags: string[],
+  seed: string,
+  hl = "en",
+  gl = "IN"
+): Promise<TagRanking> {
+  // Build the search-demand universe from several seeds (title + the video's
+  // own tags, latin-first). The first seed is expanded fully; the rest are
+  // enriched with their direct suggestions so their tags/relatives get ranked.
+  const seeds = deriveSeeds(seed, tags);
+  const primary = seeds[0] ?? shortSeed(seed);
+  const [mainUniverse, ...extraLists] = await Promise.all([
+    expandKeywords(primary, hl, gl),
+    ...seeds.slice(1).map((s) => expandKeywords(s, hl, gl, 8)),
+  ]);
+
+  const universe: string[] = [];
+  const uniSeen = new Set<string>();
+  for (const list of [mainUniverse, ...extraLists]) {
+    for (const u of list) {
+      const norm = u.trim().toLowerCase();
+      if (!norm || uniSeen.has(norm)) continue;
+      uniSeen.add(norm);
+      universe.push(norm);
+    }
+  }
+
+  const { ranked: trending, unranked: notTrending } = rankInUniverse(tags, universe);
+  const usedNorms = new Set(trending.concat().map((t) => t.tag.toLowerCase()));
+  for (const t of notTrending) usedNorms.add(t.toLowerCase());
+
+  const suggestions: RankedTag[] = [];
+  for (let i = 0; i < universe.length && suggestions.length < 15; i++) {
+    const u = universe[i];
+    if (usedNorms.has(u) || !isUsefulTag(u)) continue;
+    suggestions.push({ tag: u, rank: i + 1 });
+  }
+
+  return { trending, notTrending, suggestions };
+}
+
+export interface VideoInfo {
+  videoId: string;
+  title: string;
+  channel: string;
+  published: string; // human-readable upload date/time
+  description: string;
+  tags: string[];
+}
+
+function isoToNiceDate(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  return new Date(t).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Full public info for one video — description, real tags and upload date.
+ * Prefers the official API (also works when the watch page hides tags) and
+ * falls back to scraping the watch page.
+ */
+export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
+  if (hasYouTubeApiKey()) {
+    const map = await fetchVideoDetails([videoId]);
+    const d = map.get(videoId);
+    if (d && (d.title || d.description || d.tags.length)) {
+      return {
+        videoId,
+        title: d.title,
+        channel: d.channel,
+        published: isoToNiceDate(d.publishedAt),
+        description: d.description,
+        tags: d.tags,
+      };
+    }
+  }
+
+  const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=IN`;
+  let html = "";
+  try {
+    html = await fetchText(url);
+  } catch {
+    return { videoId, title: "", channel: "", published: "", description: "", tags: [] };
+  }
+
+  const tags = await getVideoTags(videoId);
+  const descMatch = html.match(/"shortDescription":"((?:\\.|[^"\\])*)"/);
+  let description = "";
+  if (descMatch?.[1]) {
+    try {
+      description = JSON.parse(`"${descMatch[1]}"`);
+    } catch {
+      description = descMatch[1];
+    }
+  }
+  const dateMatch =
+    html.match(/"dateText":\{"simpleText":"([^"]+)"/) ||
+    html.match(/<meta itemprop="datePublished" content="([^"]+)"/);
+  const title =
+    html.match(/<meta name="title" content="([^"]*)"/i)?.[1] ??
+    html.match(/"title":"((?:\\.|[^"\\])*)"/)?.[1] ??
+    "";
+  const channel = html.match(/"ownerChannelName":"((?:\\.|[^"\\])*)"/)?.[1] ?? "";
+
+  return {
+    videoId,
+    title,
+    channel,
+    published: dateMatch?.[1] ? isoToNiceDate(dateMatch[1]) : "",
+    description,
+    tags,
+  };
 }
 
 /* --------------------------- builders / generators ------------------------- */
@@ -289,6 +753,9 @@ export function generateHashtags(seed: string, keywords: string[], max = 20): st
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (raw: string) => {
+    // skip hashtags tied to a past year (e.g. #song2024 when it's 2026)
+    const years = raw.match(/\b(19|20)\d{2}\b/g);
+    if (years && years.some((y) => parseInt(y, 10) < CURRENT_YEAR)) return;
     const tag =
       "#" +
       raw
@@ -331,7 +798,7 @@ export function titleKeywordCounts(titles: string[]): { word: string; count: num
   for (const t of titles) {
     const words = t
       .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s#]/gu, " ")
+      .replace(/[^\p{L}\p{N}\p{M}\s#]/gu, " ")
       .split(/\s+/)
       .filter((w) => w.length > 2 && !TITLE_STOP.has(w));
     for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
@@ -346,21 +813,41 @@ export function titleKeywordCounts(titles: string[]): { word: string; count: num
  * (highest views) and returns the strongest ones, plus a couple of optimized
  * variations built from the seed + trending keywords. Not AI-hallucinated.
  */
+export interface TitleSuggestion {
+  title: string;
+  source: "ranking" | "optimized";
+  views?: number;
+  videoId?: string;
+  rank?: number; // position in the live YouTube search results
+}
+
 export function suggestTitles(
   seed: string,
   videos: VideoLite[],
   keywords: string[],
   max = 6
-): { title: string; source: "ranking" | "optimized"; views?: number }[] {
-  const out: { title: string; source: "ranking" | "optimized"; views?: number }[] = [];
+): TitleSuggestion[] {
+  const out: TitleSuggestion[] = [];
   const seen = new Set<string>();
+
+  // remember each video's original position in the search results = its rank
+  const rankOf = new Map<string, number>();
+  videos.forEach((v, i) => {
+    if (!rankOf.has(v.videoId)) rankOf.set(v.videoId, i + 1);
+  });
 
   const ranked = [...videos].sort((a, b) => b.views - a.views);
   for (const v of ranked) {
     const key = v.title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ title: v.title, source: "ranking", views: v.views });
+    out.push({
+      title: v.title,
+      source: "ranking",
+      views: v.views,
+      videoId: v.videoId,
+      rank: rankOf.get(v.videoId),
+    });
     if (out.length >= max - 2) break;
   }
 
