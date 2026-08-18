@@ -6,6 +6,9 @@ Everything needed for the listing. Build the upload file with:
 cd extension && zip -r ../BainslaMusicTags-store.zip . -x "STORE-LISTING.md" -x "*.DS_Store"
 ```
 
+Upload rejects the package if `manifest.json` breaks these limits: `name` ≤ 75 chars and
+`description` ≤ 132 chars (the store shows the same text as the short description).
+
 ## One-time developer account
 
 1. Open https://chrome.google.com/webstore/devconsole and sign in with the Google account that
