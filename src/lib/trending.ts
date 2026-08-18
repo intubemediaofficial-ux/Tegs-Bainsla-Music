@@ -8,7 +8,11 @@ import {
   titleKeywordCounts,
   DEFAULT_YT_TAGS,
 } from "./youtube";
-import { hasYouTubeApiKey, fetchVideoDetails } from "./youtube-api";
+import {
+  hasYouTubeApiKey,
+  fetchVideoDetails,
+  isoToAgeText as isoAge,
+} from "./youtube-api";
 import type {
   TrackedCategory,
   TrendingSnapshot,
@@ -65,12 +69,20 @@ export async function removeCategory(id: string): Promise<void> {
 
 /* ------------------------------ virality math ----------------------------- */
 
-function toTrending(videos: VideoLite[]): TrendingVideo[] {
-  const enriched = videos.map((v) => {
-    const ageHours = ageTextToHours(v.publishedText);
-    const velocity = v.views / ageHours;
-    return { ...v, ageHours, velocity, viralScore: 0 };
-  });
+/** Trends only count uploads from this window — older hits are not "trending". */
+const TREND_WINDOW_DAYS = 30;
+/** A stored snapshot older than this is recomputed on the next page load. */
+const SNAPSHOT_TTL_MS = 3 * 60 * 60 * 1000;
+
+function toTrending(videos: VideoLite[], windowDays = TREND_WINDOW_DAYS): TrendingVideo[] {
+  const maxAge = windowDays * 24;
+  const enriched = videos
+    .map((v) => {
+      const ageHours = ageTextToHours(v.publishedText);
+      const velocity = v.views / ageHours;
+      return { ...v, ageHours, velocity, viralScore: 0 };
+    })
+    .filter((v) => v.ageHours <= maxAge);
   const maxVel = Math.max(1, ...enriched.map((v) => v.velocity));
   for (const v of enriched) {
     // Blend raw velocity (log-scaled) with recency: newer + faster = more viral.
@@ -102,16 +114,32 @@ async function computeSnapshot(
   label: string,
   query: string
 ): Promise<TrendingSnapshot> {
-  const videos = await searchVideos(query, "en", "IN", 25);
+  // Ask YouTube for *recent* uploads only (this week + this month) so the board
+  // moves every day instead of pinning one old hit forever.
+  const [thisWeek, thisMonth] = await Promise.all([
+    searchVideos(query, "en", "IN", 25, { recentDays: 7 }),
+    searchVideos(query, "en", "IN", 25, { recentDays: 30 }),
+  ]);
+  const byId = new Map<string, VideoLite>();
+  for (const v of [...thisWeek, ...thisMonth]) {
+    if (!byId.has(v.videoId)) byId.set(v.videoId, v);
+  }
+  let videos = [...byId.values()];
+  // Nothing recent found (blocked scrape / niche query) — fall back to all-time.
+  if (videos.length === 0) videos = await searchVideos(query, "en", "IN", 25);
+
   // Fresh, accurate view counts from the official API (cheap, one batched call).
   if (hasYouTubeApiKey()) {
     const details = await fetchVideoDetails(videos.map((v) => v.videoId));
     for (const v of videos) {
       const d = details.get(v.videoId);
       if (d && d.views > 0) v.views = d.views;
+      if (d?.publishedAt) v.publishedText = isoAge(d.publishedAt);
     }
   }
-  const trending = toTrending(videos);
+  // Keep a board even when everything found is older than the trend window.
+  const recent = toTrending(videos);
+  const trending = recent.length > 0 ? recent : toTrending(videos, 3650);
   const risers = trending.slice(0, 8);
 
   // Why-viral: aggregate real tags across the fastest-rising videos.
@@ -207,4 +235,33 @@ export async function getSnapshot(categoryId: string): Promise<TrendingSnapshot 
 export async function getAllSnapshots(): Promise<TrendingSnapshot[]> {
   const snaps = await store.list<TrendingSnapshot>("trending:");
   return snaps.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function isStale(snap: TrendingSnapshot | null): boolean {
+  if (!snap) return true;
+  const at = Date.parse(snap.updatedAt);
+  return Number.isNaN(at) || Date.now() - at > SNAPSHOT_TTL_MS;
+}
+
+/**
+ * Snapshots for every tracked category, recomputing any that are missing or
+ * older than the TTL. Keeps the board fresh without a cron job while staying
+ * inside the daily API quota.
+ */
+export async function getFreshSnapshots(): Promise<TrendingSnapshot[]> {
+  const cats = await listCategories();
+  const out: TrendingSnapshot[] = [];
+  for (const cat of cats) {
+    const existing = await getSnapshot(cat.id);
+    if (!isStale(existing)) {
+      out.push(existing!);
+      continue;
+    }
+    try {
+      out.push(await refreshCategory(cat));
+    } catch {
+      if (existing) out.push(existing);
+    }
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label));
 }

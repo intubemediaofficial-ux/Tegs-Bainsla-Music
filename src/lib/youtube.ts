@@ -245,15 +245,30 @@ function runsText(r?: { runs?: { text: string }[]; simpleText?: string }): strin
   return "";
 }
 
+/** YouTube "Upload date" search filters (sp=), used to keep trends fresh. */
+const UPLOAD_FILTER = {
+  today: "EgIIAg%3D%3D",
+  week: "EgIIAw%3D%3D",
+  month: "EgIIBA%3D%3D",
+} as const;
+
+function uploadFilterFor(days: number): string {
+  if (days <= 1) return UPLOAD_FILTER.today;
+  if (days <= 7) return UPLOAD_FILTER.week;
+  return UPLOAD_FILTER.month;
+}
+
 export async function searchVideos(
   query: string,
   hl = "en",
   gl = "IN",
-  limit = 20
+  limit = 20,
+  opts: { recentDays?: number } = {}
 ): Promise<VideoLite[]> {
+  const sp = opts.recentDays ? `&sp=${uploadFilterFor(opts.recentDays)}` : "";
   const url =
     `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` +
-    `&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
+    `&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}${sp}`;
   let html = "";
   try {
     html = await fetchText(url);
@@ -291,7 +306,10 @@ export async function searchVideos(
 
   // Scraping is blocked from some IPs (datacenters) — fall back to the official API.
   if (videos.length === 0 && hasYouTubeApiKey()) {
-    return apiSearchVideos(query, gl, limit);
+    return apiSearchVideos(query, gl, limit, {
+      publishedAfterDays: opts.recentDays,
+      order: opts.recentDays ? "viewCount" : undefined,
+    });
   }
   return videos;
 }
@@ -450,6 +468,10 @@ export function seedFromTitle(title: string): string {
 }
 
 /** Trim any phrase (title or tag) to a short, clean autocomplete seed. */
+export function shortSeedOf(s: string): string {
+  return shortSeed(s);
+}
+
 function shortSeed(s: string): string {
   return s
     .replace(/#[^\s]+/g, "")

@@ -17,7 +17,7 @@ export function hasYouTubeApiKey(): boolean {
 }
 
 /** Turn an ISO publish date into a "3 days ago" style string (for velocity calc). */
-function isoToAgeText(iso: string): string {
+export function isoToAgeText(iso: string): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
   const hours = Math.max(1, Math.round((Date.now() - then) / 3_600_000));
@@ -65,12 +65,20 @@ interface PlaylistsListResponse {
 export async function apiSearchVideos(
   query: string,
   gl = "IN",
-  limit = 20
+  limit = 20,
+  opts: { publishedAfterDays?: number; order?: "relevance" | "viewCount" | "date" } = {}
 ): Promise<VideoLite[]> {
   if (!KEY) return [];
+  const since = opts.publishedAfterDays
+    ? `&publishedAfter=${new Date(
+        Date.now() - opts.publishedAfterDays * 86_400_000
+      ).toISOString()}`
+    : "";
+  const order = opts.order ? `&order=${opts.order}` : "";
   const url =
     `${API}/search?part=snippet&type=video&maxResults=${Math.min(limit, 50)}` +
-    `&regionCode=${encodeURIComponent(gl)}&q=${encodeURIComponent(query)}&key=${KEY}`;
+    `&regionCode=${encodeURIComponent(gl)}&q=${encodeURIComponent(query)}` +
+    `${since}${order}&key=${KEY}`;
   let data: SearchListResponse;
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -218,4 +226,176 @@ export async function fetchVideoDetails(
 export async function fetchVideoTags(videoId: string): Promise<string[]> {
   const map = await fetchVideoDetails([videoId]);
   return map.get(videoId)?.tags ?? [];
+}
+
+/* ------------------------------- channels --------------------------------- */
+
+export interface ApiChannel {
+  channelId: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  subscribers: number;
+  videoCount: number;
+  views: number;
+  /** Channel-level keywords (the "channel tags" set in YouTube Studio). */
+  keywords: string[];
+  uploadsPlaylistId: string;
+}
+
+interface ChannelsListResponse {
+  items?: {
+    id?: string;
+    snippet?: {
+      title?: string;
+      description?: string;
+      thumbnails?: Record<string, { url?: string }>;
+    };
+    statistics?: { subscriberCount?: string; videoCount?: string; viewCount?: string };
+    brandingSettings?: { channel?: { keywords?: string } };
+    contentDetails?: { relatedPlaylists?: { uploads?: string } };
+  }[];
+}
+
+interface PlaylistItemsResponse {
+  items?: { contentDetails?: { videoId?: string } }[];
+  nextPageToken?: string;
+}
+
+/**
+ * YouTube keeps channel keywords as one space-separated string where multi-word
+ * keywords are double-quoted: `bhajan "krishna bhajan" "new song 2026"`.
+ */
+export function parseChannelKeywords(raw: string): string[] {
+  const out: string[] = [];
+  const re = /"([^"]+)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const v = (m[1] ?? m[2] ?? "").trim();
+    if (v) out.push(v);
+  }
+  return out;
+}
+
+function parseChannelRef(raw: string): { id?: string; handle?: string; search?: string } {
+  const s = raw.trim();
+  if (/^UC[\w-]{22}$/.test(s)) return { id: s };
+  if (s.startsWith("@")) return { handle: s.slice(1) };
+
+  const idMatch = s.match(/channel\/(UC[\w-]{22})/);
+  if (idMatch) return { id: idMatch[1] };
+  const handleMatch = s.match(/youtube\.com\/@([^/?&#]+)/);
+  if (handleMatch) return { handle: decodeURIComponent(handleMatch[1]) };
+  const legacy = s.match(/youtube\.com\/(?:c|user)\/([^/?&#]+)/);
+  if (legacy) return { search: decodeURIComponent(legacy[1]) };
+  return { search: s };
+}
+
+function mapChannel(item: NonNullable<ChannelsListResponse["items"]>[number]): ApiChannel {
+  return {
+    channelId: item.id ?? "",
+    title: item.snippet?.title ?? "",
+    description: item.snippet?.description ?? "",
+    thumbnail: pickThumb(item.snippet?.thumbnails),
+    subscribers: Number(item.statistics?.subscriberCount ?? 0),
+    videoCount: Number(item.statistics?.videoCount ?? 0),
+    views: Number(item.statistics?.viewCount ?? 0),
+    keywords: parseChannelKeywords(item.brandingSettings?.channel?.keywords ?? ""),
+    uploadsPlaylistId: item.contentDetails?.relatedPlaylists?.uploads ?? "",
+  };
+}
+
+const CHANNEL_PARTS = "snippet,statistics,brandingSettings,contentDetails";
+
+/**
+ * Resolve a channel URL / @handle / UC id to its public profile *and* its
+ * channel keywords. Tries channels.list by id (1 unit), then by handle (1 unit),
+ * then falls back to search.list (100 units) for old /c/ and /user/ URLs.
+ */
+export async function apiGetChannel(ref: string): Promise<ApiChannel | null> {
+  if (!KEY) return null;
+  const { id, handle, search } = parseChannelRef(ref);
+
+  const byUrl = async (qs: string): Promise<ApiChannel | null> => {
+    try {
+      const res = await fetch(`${API}/channels?part=${CHANNEL_PARTS}&${qs}&key=${KEY}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as ChannelsListResponse;
+      const item = data.items?.[0];
+      return item ? mapChannel(item) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  if (id) return byUrl(`id=${encodeURIComponent(id)}`);
+  if (handle) {
+    const found = await byUrl(`forHandle=${encodeURIComponent(handle)}`);
+    if (found) return found;
+  }
+
+  const term = search ?? handle ?? "";
+  if (!term) return null;
+  try {
+    const res = await fetch(
+      `${API}/search?part=snippet&type=channel&maxResults=1&q=${encodeURIComponent(term)}&key=${KEY}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as SearchListResponse & {
+      items?: { id?: { channelId?: string } }[];
+    };
+    const cid = data.items?.[0]?.id?.channelId;
+    return cid ? byUrl(`id=${encodeURIComponent(cid)}`) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Latest uploads of a channel via its uploads playlist (1 unit per 50 items)
+ * enriched with accurate views — far cheaper than search.list per channel.
+ */
+export async function apiChannelUploads(
+  uploadsPlaylistId: string,
+  limit = 30
+): Promise<VideoLite[]> {
+  if (!KEY || !uploadsPlaylistId) return [];
+  const ids: string[] = [];
+  let pageToken = "";
+  while (ids.length < limit) {
+    const url =
+      `${API}/playlistItems?part=contentDetails&maxResults=50` +
+      `&playlistId=${encodeURIComponent(uploadsPlaylistId)}` +
+      `${pageToken ? `&pageToken=${pageToken}` : ""}&key=${KEY}`;
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) break;
+      const data = (await res.json()) as PlaylistItemsResponse;
+      for (const it of data.items ?? []) {
+        const vid = it.contentDetails?.videoId;
+        if (vid) ids.push(vid);
+      }
+      if (!data.nextPageToken) break;
+      pageToken = data.nextPageToken;
+    } catch {
+      break;
+    }
+  }
+
+  const details = await fetchVideoDetails(ids.slice(0, limit));
+  return ids.slice(0, limit).map((id) => {
+    const d = details.get(id);
+    return {
+      videoId: id,
+      title: d?.title ?? "",
+      channel: d?.channel ?? "",
+      views: d?.views ?? 0,
+      publishedText: isoToAgeText(d?.publishedAt ?? ""),
+      thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      url: `https://www.youtube.com/watch?v=${id}`,
+    };
+  });
 }
