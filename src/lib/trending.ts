@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { store } from "./store";
 import {
   ageTextToHours,
+  expandKeywords,
   getVideoTags,
   searchVideos,
   generateHashtags,
@@ -11,9 +12,12 @@ import {
 import {
   hasYouTubeApiKey,
   fetchVideoDetails,
+  apiGetChannel,
   isoToAgeText as isoAge,
 } from "./youtube-api";
 import type {
+  CompetitorTrend,
+  RelatedTrend,
   TrackedCategory,
   TrendingSnapshot,
   TrendingVideo,
@@ -25,23 +29,26 @@ const DEFAULT_CATEGORIES: Omit<TrackedCategory, "id" | "createdAt">[] = [
   { label: "Rajasthani Music", query: "new rajasthani song", language: "hi" },
   { label: "Bhajan / Devotional", query: "new bhajan", language: "hi" },
   { label: "Haryanvi DJ Remix", query: "haryanvi dj remix", language: "hi" },
+  { label: "Gurjar Rasiya", query: "gurjar rasiya", language: "hi" },
+  { label: "Devotional Bhajan", query: "new devotional bhajan", language: "hi" },
 ];
 
 /* ----------------------------- categories CRUD ---------------------------- */
 
 export async function listCategories(): Promise<TrackedCategory[]> {
-  let cats = await store.list<TrackedCategory>("category:");
-  if (cats.length === 0) {
-    cats = [];
-    for (const c of DEFAULT_CATEGORIES) {
-      const cat: TrackedCategory = {
-        id: randomUUID(),
-        createdAt: new Date().toISOString(),
-        ...c,
-      };
-      await store.set(`category:${cat.id}`, cat);
-      cats.push(cat);
-    }
+  const cats = await store.list<TrackedCategory>("category:");
+  // Seed any default category that isn't tracked yet (also covers new defaults
+  // added after a store already exists).
+  const have = new Set(cats.map((c) => c.label.toLowerCase()));
+  for (const c of DEFAULT_CATEGORIES) {
+    if (have.has(c.label.toLowerCase())) continue;
+    const cat: TrackedCategory = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      ...c,
+    };
+    await store.set(`category:${cat.id}`, cat);
+    cats.push(cat);
   }
   return cats.sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -72,7 +79,7 @@ export async function removeCategory(id: string): Promise<void> {
 /** Trends only count uploads from this window — older hits are not "trending". */
 const TREND_WINDOW_DAYS = 30;
 /** A stored snapshot older than this is recomputed on the next page load. */
-const SNAPSHOT_TTL_MS = 3 * 60 * 60 * 1000;
+const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 
 function toTrending(videos: VideoLite[], windowDays = TREND_WINDOW_DAYS): TrendingVideo[] {
   const maxAge = windowDays * 24;
@@ -87,7 +94,10 @@ function toTrending(videos: VideoLite[], windowDays = TREND_WINDOW_DAYS): Trendi
   for (const v of enriched) {
     // Blend raw velocity (log-scaled) with recency: newer + faster = more viral.
     const velScore = Math.min(100, (Math.log10(v.velocity + 1) / Math.log10(maxVel + 1)) * 100);
-    const recencyBoost = v.ageHours <= 24 * 7 ? 15 : v.ageHours <= 24 * 30 ? 5 : 0;
+    // This week's uploads are what "trending now" means, so they outrank a
+    // three-week-old video with similar velocity.
+    const recencyBoost =
+      v.ageHours <= 48 ? 30 : v.ageHours <= 24 * 7 ? 20 : v.ageHours <= 24 * 30 ? 5 : 0;
     v.viralScore = Math.round(Math.min(100, velScore + recencyBoost));
   }
   return enriched.sort((a, b) => b.viralScore - a.viralScore);
@@ -205,13 +215,65 @@ export async function refreshCategory(cat: TrackedCategory): Promise<TrendingSna
   return snapshot;
 }
 
+const CHANNEL_REF = /youtube\.com\/(channel\/|@|c\/|user\/)|^UC[\w-]{22}$|^@/;
+
 /**
- * Ad-hoc trend search for any typed query (category / singer / artist / song).
- * Computes the same viral insight + video list but is NOT stored.
+ * Ad-hoc trend search for anything typed: category, singer, artist, song title
+ * or a channel link. Adds what's trending for *related* searches and for the
+ * competitor channels ranking on the same query, so a singer's whole space is
+ * visible at once. Not stored — always computed live.
  */
 export async function searchTrending(query: string): Promise<TrendingSnapshot> {
-  const q = query.trim();
-  return computeSnapshot(`adhoc:${q.toLowerCase()}`, q, q);
+  const raw = query.trim();
+  let q = raw;
+  let label = raw;
+
+  // A channel link/handle: trend on the channel's own name instead of the URL.
+  if (CHANNEL_REF.test(raw) && hasYouTubeApiKey()) {
+    const ch = await apiGetChannel(raw);
+    if (ch?.title) {
+      q = ch.title;
+      label = ch.title;
+    }
+  }
+
+  const base = await computeSnapshot(`adhoc:${q.toLowerCase()}`, label, q);
+
+  const [related, competitors] = await Promise.all([
+    relatedTrends(q),
+    competitorTrends(base.videos),
+  ]);
+  return { ...base, related, competitors };
+}
+
+/** What's trending for the nearest real searches around this query. */
+async function relatedTrends(query: string): Promise<RelatedTrend[]> {
+  const keywords = (await expandKeywords(query, "hi", "IN"))
+    .filter((k) => k.toLowerCase() !== query.toLowerCase())
+    .slice(0, 3);
+
+  const out = await Promise.all(
+    keywords.map(async (k) => {
+      const vids = await searchVideos(k, "en", "IN", 10, { recentDays: 30 });
+      return { query: k, videos: toTrending(vids).slice(0, 4) };
+    })
+  );
+  return out.filter((r) => r.videos.length > 0);
+}
+
+/** The channels competing on this query, each with its best current upload. */
+function competitorTrends(videos: TrendingVideo[]): CompetitorTrend[] {
+  const byChannel = new Map<string, TrendingVideo[]>();
+  for (const v of videos) {
+    if (!v.channel) continue;
+    const list = byChannel.get(v.channel) ?? [];
+    if (list.length < 2) list.push(v);
+    byChannel.set(v.channel, list);
+  }
+  return [...byChannel.entries()]
+    .map(([channel, vids]) => ({ channel, videos: vids }))
+    .sort((a, b) => b.videos[0].viralScore - a.videos[0].viralScore)
+    .slice(0, 6);
 }
 
 export async function refreshAll(): Promise<{ refreshed: number }> {

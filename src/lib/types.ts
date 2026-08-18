@@ -62,12 +62,27 @@ export interface TrendingVideo extends VideoLite {
   viralScore: number; // 0-100
 }
 
+/** Trending videos for one keyword related to the searched term. */
+export interface RelatedTrend {
+  query: string;
+  videos: TrendingVideo[];
+}
+
+/** A channel competing for the same searches, with its best current upload. */
+export interface CompetitorTrend {
+  channel: string;
+  videos: TrendingVideo[];
+}
+
 export interface TrendingSnapshot {
   categoryId: string;
   label: string;
   query: string;
   updatedAt: string;
   videos: TrendingVideo[];
+  /** Only filled for on-demand searches (keyword / singer / channel). */
+  related?: RelatedTrend[];
+  competitors?: CompetitorTrend[];
   // Why-viral aggregate insight across the fastest-rising videos
   insight: {
     topTags: { tag: string; count: number }[];

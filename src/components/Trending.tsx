@@ -22,6 +22,8 @@ interface Snapshot {
   query: string;
   updatedAt: string;
   videos: TrendingVideo[];
+  related?: { query: string; videos: TrendingVideo[] }[];
+  competitors?: { channel: string; videos: TrendingVideo[] }[];
   insight: {
     topTags: { tag: string; count: number }[];
     topHashtags: { tag: string; count: number }[];
@@ -42,6 +44,22 @@ function freshness(updatedAt: string): string {
   if (hrs < 24) return `${hrs} hr ago`;
   return `${Math.round(hrs / 24)} days ago`;
 }
+
+/** "Last updated: today 4:35 PM" — an absolute clock, not just "x min ago". */
+function lastUpdated(updatedAt: string): string {
+  const at = new Date(updatedAt);
+  if (Number.isNaN(at.getTime())) return "unknown";
+  const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const today = new Date();
+  const sameDay = at.toDateString() === today.toDateString();
+  const yesterday = new Date(today.getTime() - 86_400_000).toDateString() === at.toDateString();
+  if (sameDay) return `today ${time}`;
+  if (yesterday) return `yesterday ${time}`;
+  return `${at.toLocaleDateString()} ${time}`;
+}
+
+/** How often the open page re-checks the server for a newer snapshot. */
+const POLL_MS = 5 * 60 * 1000;
 
 export function Trending({ isAdmin }: { isAdmin: boolean }) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -67,6 +85,15 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
 
   useEffect(() => {
     load();
+    const timer = setInterval(load, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -118,7 +145,7 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
           className="input flex-1"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search any category / singer / artist / song — e.g. krishna bhajan, kd desirock"
+          placeholder="Any category / singer / artist / song / channel link — e.g. gurjar rasiya, kd desirock"
         />
         <button className="btn-primary" disabled={searching}>
           {searching ? "Searching…" : "Search trends"}
@@ -170,7 +197,9 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
           <div className="card border-brand-500/40 bg-gradient-to-br from-brand-600/10 via-ink-card to-ink-card">
             <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-black text-brand-200">🔥 Why it&apos;s viral</h2>
-              <span className="chip text-[11px]">Updated {freshness(current.updatedAt)}</span>
+              <span className="chip border-brand-500/40 text-[11px] font-bold text-brand-100">
+                Last updated: {lastUpdated(current.updatedAt)} ({freshness(current.updatedAt)})
+              </span>
             </div>
             <p className="text-sm font-medium text-slate-200">{current.insight.recommendation}</p>
             <div className="mt-3 flex flex-col gap-4 md:flex-row">
@@ -192,9 +221,9 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
               />
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Only uploads from the last 30 days count as trending. Auto-refreshes every few hours —
-              hit “Refresh now” for this second&apos;s data. Last built{" "}
-              {new Date(current.updatedAt).toLocaleString()}.
+              Only uploads from the last 30 days count as trending. Rebuilds itself every 30 minutes
+              and this page re-checks every 5 minutes — hit “Refresh now” for this second&apos;s
+              data.
             </p>
           </div>
 
@@ -248,6 +277,38 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
               </button>
             ))}
           </div>
+
+          {current.related && current.related.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-lg font-black text-slate-100">
+                Related searches trending right now
+              </h2>
+              {current.related.map((r) => (
+                <TrendRow
+                  key={r.query}
+                  heading={`🔎 ${r.query}`}
+                  videos={r.videos}
+                  onPick={setOpenVideo}
+                />
+              ))}
+            </div>
+          )}
+
+          {current.competitors && current.competitors.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-lg font-black text-slate-100">
+                Competitor channels going viral on this
+              </h2>
+              {current.competitors.map((c) => (
+                <TrendRow
+                  key={c.channel}
+                  heading={`📺 ${c.channel}`}
+                  videos={c.videos}
+                  onPick={setOpenVideo}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -258,6 +319,56 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
           onClose={() => setOpenVideo(null)}
         />
       )}
+    </div>
+  );
+}
+
+function TrendRow({
+  heading,
+  videos,
+  onPick,
+}: {
+  heading: string;
+  videos: TrendingVideo[];
+  onPick: (v: VideoRef) => void;
+}) {
+  return (
+    <div className="card space-y-2">
+      <div className="text-sm font-black text-brand-200">{heading}</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {videos.map((v) => (
+          <button
+            key={v.videoId}
+            onClick={() =>
+              onPick({
+                videoId: v.videoId,
+                title: v.title,
+                channel: v.channel,
+                views: v.views,
+                publishedText: v.publishedText,
+                thumbnail: v.thumbnail,
+                url: v.url,
+              })
+            }
+            className="flex gap-2 rounded-lg border border-ink-line p-2 text-left transition hover:border-brand-500"
+          >
+            <Image
+              src={v.thumbnail}
+              alt={v.title}
+              width={96}
+              height={54}
+              unoptimized
+              className="h-14 w-24 shrink-0 rounded object-cover"
+            />
+            <div className="min-w-0">
+              <div className="line-clamp-2 text-xs font-bold text-slate-100">{v.title}</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">
+                {v.views.toLocaleString()} views · {v.publishedText} · 🔥 {v.viralScore}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
