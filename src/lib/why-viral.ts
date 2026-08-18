@@ -67,18 +67,6 @@ export function explainVideo(input: WhyInput): ViralWhy {
   const keyword = norm(topKeyword);
   const head = norm(title).slice(0, 45);
   const titleEarly = keyword.length > 0 && head.includes(keyword);
-  // Did it beat what this channel normally gets? >2x means discovery, not just subs.
-  const overperform = channelAvgViews > 0 ? views / channelAvgViews : 1;
-
-  if (channelAvgViews > 0 && overperform < 1.2 && channelSubscribers >= 200_000) {
-    return {
-      reason: "CHANNEL",
-      label: "Channel audience is carrying it",
-      note: `${fmt(channelSubscribers)} subscribers and views are around this channel's normal (${fmt(
-        channelAvgViews
-      )}/video) — subscribers, not new search traffic. ${weakest(hitRate, titleEarly)}`,
-    };
-  }
 
   if (tags.length > 0 && hitRate >= 0.4) {
     return {
@@ -87,6 +75,17 @@ export function explainVideo(input: WhyInput): ViralWhy {
       note: `${Math.round(hitRate * 100)}% of its tags are ones people actually search (${
         tags.length
       } tags total)${titleEarly ? " and the top keyword sits early in the title" : ""}. Copy these tags.`,
+    };
+  }
+
+  // Fast while its own search signals are weak — clicks are coming from the art.
+  if (speedRatio >= HOT) {
+    return {
+      reason: "THUMBNAIL",
+      label: "Thumbnail is pulling the clicks",
+      note: `${Math.round(speedRatio * 10) / 10}x the views/hr of the rest of this board while its tags${
+        tags.length === 0 ? " are hidden" : " barely rank"
+      }${titleEarly ? "" : " and the title has no top keyword"} — the clicks are coming from the thumbnail. Study it, then fix your tags/title too.`,
     };
   }
 
@@ -101,13 +100,17 @@ export function explainVideo(input: WhyInput): ViralWhy {
     };
   }
 
-  if (speedRatio >= HOT) {
+  // Big channel and the video is already near its usual per-video pull: subscribers.
+  if (channelSubscribers >= 200_000 && channelAvgViews > 0 && views >= channelAvgViews * 0.25) {
     return {
-      reason: "THUMBNAIL",
-      label: "Thumbnail is pulling the clicks",
-      note: `${Math.round(speedRatio * 10) / 10}x the views/hr of the rest of this board while its tags${
-        tags.length === 0 ? " are hidden" : " barely rank"
-      } and the title has no top keyword — the clicks are coming from the thumbnail. Study it, then fix your tags/title too.`,
+      reason: "CHANNEL",
+      label: "Channel audience is carrying it",
+      note: `${fmt(channelSubscribers)} subscribers and this channel normally pulls ${fmt(
+        channelAvgViews
+      )}/video — the views are coming from subscribers, not new search traffic. ${weakest(
+        hitRate,
+        titleEarly
+      )}`,
     };
   }
 
