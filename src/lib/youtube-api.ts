@@ -166,6 +166,7 @@ export interface ApiVideoDetail {
   tags: string[];
   title: string;
   channel: string;
+  channelId: string;
   publishedAt: string;
   description: string;
 }
@@ -176,6 +177,7 @@ interface VideosListResponse {
     snippet?: {
       title?: string;
       channelTitle?: string;
+      channelId?: string;
       publishedAt?: string;
       tags?: string[];
       description?: string;
@@ -211,6 +213,7 @@ export async function fetchVideoDetails(
           tags: item.snippet?.tags ?? [],
           title: item.snippet?.title ?? "",
           channel: item.snippet?.channelTitle ?? "",
+          channelId: item.snippet?.channelId ?? "",
           publishedAt: item.snippet?.publishedAt ?? "",
           description: item.snippet?.description ?? "",
         });
@@ -260,6 +263,47 @@ interface ChannelsListResponse {
 interface PlaylistItemsResponse {
   items?: { contentDetails?: { videoId?: string } }[];
   nextPageToken?: string;
+}
+
+export interface ApiChannelStats {
+  subscribers: number;
+  views: number;
+  videoCount: number;
+}
+
+/**
+ * Subscriber/view totals for many channels at once (batched by 50, 1 quota unit
+ * per batch) — used to tell an audience-driven hit from a discovery-driven one.
+ */
+export async function apiChannelStats(
+  channelIds: string[]
+): Promise<Map<string, ApiChannelStats>> {
+  const out = new Map<string, ApiChannelStats>();
+  const ids = [...new Set(channelIds.filter(Boolean))];
+  if (!KEY || ids.length === 0) return out;
+
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    try {
+      const res = await fetch(
+        `${API}/channels?part=statistics&maxResults=50&id=${chunk.join(",")}&key=${KEY}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) break;
+      const data = (await res.json()) as ChannelsListResponse;
+      for (const item of data.items ?? []) {
+        if (!item.id) continue;
+        out.set(item.id, {
+          subscribers: Number(item.statistics?.subscriberCount ?? 0),
+          views: Number(item.statistics?.viewCount ?? 0),
+          videoCount: Number(item.statistics?.videoCount ?? 0),
+        });
+      }
+    } catch {
+      break;
+    }
+  }
+  return out;
 }
 
 /**

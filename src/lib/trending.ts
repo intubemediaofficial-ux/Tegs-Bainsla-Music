@@ -12,9 +12,11 @@ import {
 import {
   hasYouTubeApiKey,
   fetchVideoDetails,
+  apiChannelStats,
   apiGetChannel,
   isoToAgeText as isoAge,
 } from "./youtube-api";
+import { explainVideo } from "./why-viral";
 import type {
   CompetitorTrend,
   RelatedTrend,
@@ -103,6 +105,38 @@ function toTrending(videos: VideoLite[], windowDays = TREND_WINDOW_DAYS): Trendi
   return enriched.sort((a, b) => b.viralScore - a.viralScore);
 }
 
+/**
+ * Label the top risers with what public data says is driving them (thumbnail vs
+ * tags vs title vs channel). One batched channels.list call for the whole board.
+ */
+async function attachWhy(
+  risers: TrendingVideo[],
+  tagsOf: Map<string, string[]>,
+  demandTags: string[],
+  channelIdOf: Map<string, string>
+): Promise<void> {
+  if (risers.length === 0) return;
+  const stats = await apiChannelStats(risers.map((v) => channelIdOf.get(v.videoId) ?? ""));
+
+  const velocities = risers.map((v) => v.velocity).sort((a, b) => a - b);
+  const boardVelocity = velocities[Math.floor(velocities.length / 2)] ?? 0;
+
+  for (const v of risers) {
+    const ch = stats.get(channelIdOf.get(v.videoId) ?? "");
+    v.why = explainVideo({
+      velocity: v.velocity,
+      boardVelocity,
+      views: v.views,
+      tags: tagsOf.get(v.videoId) ?? [],
+      demandTags,
+      title: v.title,
+      topKeyword: demandTags[0] ?? "",
+      channelSubscribers: ch?.subscribers ?? 0,
+      channelAvgViews: ch && ch.videoCount > 0 ? Math.round(ch.views / ch.videoCount) : 0,
+    });
+  }
+}
+
 function extractHashtags(titles: string[]): { tag: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const t of titles) {
@@ -139,12 +173,14 @@ async function computeSnapshot(
   if (videos.length === 0) videos = await searchVideos(query, "en", "IN", 25);
 
   // Fresh, accurate view counts from the official API (cheap, one batched call).
+  const channelIdOf = new Map<string, string>();
   if (hasYouTubeApiKey()) {
     const details = await fetchVideoDetails(videos.map((v) => v.videoId));
     for (const v of videos) {
       const d = details.get(v.videoId);
       if (d && d.views > 0) v.views = d.views;
       if (d?.publishedAt) v.publishedText = isoAge(d.publishedAt);
+      if (d?.channelId) channelIdOf.set(v.videoId, d.channelId);
     }
   }
   // Keep a board even when everything found is older than the trend window.
@@ -154,9 +190,11 @@ async function computeSnapshot(
 
   // Why-viral: aggregate real tags across the fastest-rising videos.
   const tagCounts = new Map<string, number>();
+  const tagsOf = new Map<string, string[]>();
   await Promise.all(
     risers.map(async (v) => {
       const tags = await getVideoTags(v.videoId);
+      tagsOf.set(v.videoId, tags);
       for (const tag of tags.slice(0, 30)) {
         const norm = tag.toLowerCase().trim();
         if (norm && !DEFAULT_YT_TAGS.has(norm)) {
@@ -169,6 +207,8 @@ async function computeSnapshot(
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 25);
+
+  await attachWhy(risers, tagsOf, topTags.map((t) => t.tag), channelIdOf);
 
   const titles = risers.map((v) => v.title);
   const topHashtags = extractHashtags(titles).slice(0, 15);

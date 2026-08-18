@@ -15,7 +15,16 @@ interface TrendingVideo {
   url: string;
   velocity: number;
   viralScore: number;
+  why?: { reason: string; label: string; note: string };
 }
+
+const REASON_ICON: Record<string, string> = {
+  THUMBNAIL: "🖼️",
+  TAGS: "🏷️",
+  TITLE: "✍️",
+  CHANNEL: "👥",
+  SPEED: "📈",
+};
 interface Snapshot {
   categoryId: string;
   label: string;
@@ -221,7 +230,9 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
               />
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Only uploads from the last 30 days count as trending. Rebuilds itself every 30 minutes
+              Each video carries an estimate of what is driving it (thumbnail / tags / title /
+              channel), compared from public data — YouTube never shares another creator&apos;s CTR
+              or traffic sources. Only uploads from the last 30 days count as trending. Rebuilds itself every 30 minutes
               and this page re-checks every 5 minutes — hit “Refresh now” for this second&apos;s
               data.
             </p>
@@ -273,6 +284,16 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
                       {Math.round(v.velocity).toLocaleString()} views/hr
                     </span>
                   </div>
+                  {v.why && (
+                    <div className="mt-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-1.5">
+                      <div className="text-[11px] font-black text-amber-200">
+                        {REASON_ICON[v.why.reason] ?? "💡"} {v.why.label}
+                      </div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-slate-300">
+                        {v.why.note}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </button>
             ))}

@@ -1,4 +1,5 @@
 import type { PlanId } from "./plans";
+import type { ViralWhy } from "./why-viral";
 
 export interface User {
   id: string;
@@ -60,6 +61,8 @@ export interface TrendingVideo extends VideoLite {
   ageHours: number;
   velocity: number; // views per hour since publish
   viralScore: number; // 0-100
+  /** Public-signal estimate of what is driving it (top risers only). */
+  why?: ViralWhy;
 }
 
 /** Trending videos for one keyword related to the searched term. */
