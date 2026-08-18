@@ -1,4 +1,4 @@
-const DEFAULTS = { apiBase: "http://localhost:3000", apiKey: "" };
+const DEFAULTS = { apiBase: "https://tag.bainslamusic.com", apiKey: "" };
 
 async function load() {
   const cfg = await chrome.storage.sync.get(DEFAULTS);
