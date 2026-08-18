@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   if (!videoId) return withCors(error("Could not parse a video id"));
 
   try {
-    const report = await buildVideoReport(videoId);
+    const report = await buildVideoReport(videoId, user.id);
     return withCors(json(report));
   } catch (e) {
     return withCors(error(e instanceof Error ? e.message : "Failed to read video", 500));

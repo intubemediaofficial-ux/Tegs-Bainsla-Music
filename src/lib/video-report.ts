@@ -15,6 +15,7 @@ import {
   hasYouTubeApiKey,
 } from "./youtube-api";
 import { explainVideo, type ViralWhy } from "./why-viral";
+import { ownerVideoStats, ownsChannel, type OwnerVideoStats } from "./yt-analytics";
 import { trackVideo, type VideoPulse } from "./pulse";
 import { scoreTitle } from "./scoring";
 
@@ -80,8 +81,11 @@ export interface VideoReport {
   hashtagIdeas: string[];
   channel: ReportChannel | null;
   why: ViralWhy | null;
-  /** True when the channel is connected, i.e. official realtime is available. */
-  official: boolean;
+  /**
+   * Official owner-only metrics — traffic sources, retention, subscribers
+   * gained. Present only when the caller connected this very channel.
+   */
+  owner: OwnerVideoStats | null;
 }
 
 function durationText(iso: string): string {
@@ -125,8 +129,15 @@ export function parseVideoId(raw: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** Full public report for one video, sampling its counters into the pulse history. */
-export async function buildVideoReport(videoId: string): Promise<VideoReport> {
+/**
+ * Full report for one video, sampling its counters into the pulse history.
+ * Pass `userId` to also attach official analytics when the video belongs to
+ * that user's connected channel.
+ */
+export async function buildVideoReport(
+  videoId: string,
+  userId?: string
+): Promise<VideoReport> {
   if (!hasYouTubeApiKey()) throw new Error("YouTube API key is not configured on the server");
 
   const details = await fetchVideoDetails([videoId]);
@@ -179,7 +190,7 @@ export async function buildVideoReport(videoId: string): Promise<VideoReport> {
           : 0,
       keywords: channelInfo.keywords,
       uploadsPerWeek:
-        spanHours > 0 ? Math.round(((recent.length / spanHours) * 168 * 10) / 10) / 1 : 0,
+        spanHours > 0 ? Math.round(((recent.length - 1) / (spanHours / 168)) * 10) / 10 : 0,
       recent,
     };
   }
@@ -203,6 +214,11 @@ export async function buildVideoReport(videoId: string): Promise<VideoReport> {
   });
 
   const scored = scoreTitle(d.title, seed);
+
+  let owner: OwnerVideoStats | null = null;
+  if (userId && d.channelId && (await ownsChannel(userId, d.channelId))) {
+    owner = await ownerVideoStats(userId, videoId).catch(() => null);
+  }
 
   return {
     video: {
@@ -235,7 +251,7 @@ export async function buildVideoReport(videoId: string): Promise<VideoReport> {
     hashtagIdeas: generateHashtags(seed, demandTags, 15),
     channel,
     why,
-    official: false,
+    owner,
   };
 }
 

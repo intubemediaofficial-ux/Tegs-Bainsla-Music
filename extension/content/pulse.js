@@ -57,15 +57,26 @@
       return;
     }
     const p = data.pulse;
+    const span = (d) => (d.measured ? `measured over ${d.coveredHours}h` : "estimate from lifetime average");
     const items = [
-      { icon: "👁", value: compact(p.last60m.views), hint: "last 60 min", live: p.last60m.measured },
-      { icon: "🕐", value: compact(p.last48h.views), hint: "last 48 h", live: p.last48h.measured },
+      {
+        icon: "👁",
+        value: compact(p.last60m.views),
+        hint: `last 60 min — ${span(p.last60m)}`,
+        live: p.last60m.measured && !p.last60m.partial,
+      },
+      {
+        icon: "🕐",
+        value: compact(p.last48h.views),
+        hint: `last 48 h — ${span(p.last48h)}`,
+        live: p.last48h.measured && !p.last48h.partial,
+      },
       { icon: "⚡", value: `${compact(p.currentVph)}/hr`, hint: "views per hour", live: p.tracking },
       { icon: "📊", value: compact(data.video.views), hint: "total views", live: true },
     ];
     for (const it of items) {
       const box = el("span", `bmt-s-item${it.live ? "" : " bmt-est"}`);
-      box.title = it.live ? it.hint : `${it.hint} (estimate — tracking just started)`;
+      box.title = it.hint;
       box.appendChild(el("span", "bmt-s-ico", it.icon));
       box.appendChild(el("span", "bmt-s-val", it.value));
       strip.appendChild(box);
@@ -154,11 +165,12 @@
 
     // Realtime block
     const rt = el("div");
+    const label = (name, d) => (d.measured && d.partial ? `${name} (${d.coveredHours}h so far)` : name);
     rt.appendChild(
       statGrid([
-        ["last 60 min", compact(p.last60m.views)],
-        ["last 24 h", compact(p.last24h.views)],
-        ["last 48 h", compact(p.last48h.views)],
+        [label("last 60 min", p.last60m), compact(p.last60m.views)],
+        [label("last 24 h", p.last24h), compact(p.last24h.views)],
+        [label("last 48 h", p.last48h), compact(p.last48h.views)],
         ["views / hr", compact(p.currentVph)],
       ])
     );
@@ -168,8 +180,8 @@
         "div",
         "bmt-note",
         p.tracking
-          ? `Measured here (${p.samples.length} samples, ~${p.last48h.coveredHours}h covered) — YouTube's own realtime is private to the owner.`
-          : "Tracking started just now — these are lifetime-average estimates until the next samples land."
+          ? `Measured here every 5 min (${p.samples.length} samples, ${p.last48h.coveredHours}h tracked so far). YouTube keeps its own realtime report private to the video's owner.`
+          : "Tracking just started — these are lifetime-average estimates until the next samples land (about 5 minutes)."
       )
     );
     panel.appendChild(section("Realtime", rt));
@@ -204,6 +216,57 @@
       why.appendChild(el("div", "bmt-why-l", data.why.label));
       why.appendChild(el("div", "bmt-note", data.why.note));
       panel.appendChild(section("Why it is winning (estimate)", why));
+    }
+
+    // Official owner analytics (only for your own connected channel)
+    if (data.owner) {
+      const o = data.owner;
+      const box = el("div");
+      box.appendChild(
+        statGrid([
+          [`views ${o.windowDays}d`, compact(o.views)],
+          ["watch time", `${compact(o.minutesWatched)}m`],
+          ["avg viewed", `${o.averageViewPercentage}%`],
+          ["subs gained", compact(o.subscribersGained)],
+        ])
+      );
+      if (o.traffic.length) {
+        const list = el("div", "bmt-bars");
+        o.traffic.slice(0, 6).forEach((t) => {
+          const row = el("div", "bmt-bar-row");
+          row.appendChild(el("span", "bmt-bar-l", t.source));
+          const track = el("span", "bmt-bar-track");
+          const fill = el("span", "bmt-bar-fill");
+          fill.style.width = `${Math.max(2, t.share)}%`;
+          track.appendChild(fill);
+          row.appendChild(track);
+          row.appendChild(el("span", "bmt-bar-v", `${t.share}%`));
+          list.appendChild(row);
+        });
+        const sub = el("div", "bmt-sub");
+        sub.appendChild(el("span", null, "Where views really came from"));
+        box.appendChild(sub);
+        box.appendChild(list);
+      }
+      if (o.searchTerms.length) {
+        const chips = el("div", "bmt-chips");
+        o.searchTerms.forEach((s) => {
+          const c = el("span", "bmt-chip bmt-chip-ok");
+          c.appendChild(el("span", null, s.term));
+          c.appendChild(el("span", "bmt-rank", compact(s.views)));
+          c.appendChild(copyBtn(s.term, "⧉"));
+          chips.appendChild(c);
+        });
+        const sub = el("div", "bmt-sub");
+        sub.appendChild(el("span", null, "Real search terms bringing views"));
+        sub.appendChild(copyBtn(o.searchTerms.map((s) => s.term).join(", "), "Copy all"));
+        box.appendChild(sub);
+        box.appendChild(chips);
+      }
+      box.appendChild(
+        el("div", "bmt-note", "Official YouTube Analytics for your own channel — not an estimate.")
+      );
+      panel.appendChild(section("Your channel — official numbers", box));
     }
 
     // Tags

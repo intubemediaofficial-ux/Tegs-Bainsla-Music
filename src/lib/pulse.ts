@@ -26,6 +26,8 @@ export interface PulseDelta {
   coveredHours: number;
   /** False when derived from the lifetime average instead of real samples. */
   measured: boolean;
+  /** Measured, but over a span noticeably shorter than the window asked for. */
+  partial: boolean;
 }
 
 export interface VideoPulse {
@@ -90,6 +92,7 @@ function windowDelta(samples: PulseSample[], windowHours: number, fallbackVph: n
       views: Math.round(fallbackVph * windowHours),
       coveredHours: 0,
       measured: false,
+      partial: false,
     };
   }
 
@@ -99,7 +102,12 @@ function windowDelta(samples: PulseSample[], windowHours: number, fallbackVph: n
   const before = samples.filter((s) => s.t < cutoff);
   const base = before.length > 0 ? before[before.length - 1] : inside[0];
   if (!base || base === latest) {
-    return { views: Math.round(fallbackVph * windowHours), coveredHours: 0, measured: false };
+    return {
+      views: Math.round(fallbackVph * windowHours),
+      coveredHours: 0,
+      measured: false,
+      partial: false,
+    };
   }
 
   const coveredHours = (latest.t - base.t) / 3600_000;
@@ -107,6 +115,7 @@ function windowDelta(samples: PulseSample[], windowHours: number, fallbackVph: n
     views: Math.max(0, latest.views - base.views),
     coveredHours: Math.round(coveredHours * 100) / 100,
     measured: true,
+    partial: coveredHours < windowHours * 0.9,
   };
 }
 
