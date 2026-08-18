@@ -14,7 +14,8 @@
   },
   "options_page": "options/options.html",
   "permissions": ["storage"],
-  "host_permissions": ["*://*.youtube.com/*", "https://*/*", "http://localhost/*"],
+  "host_permissions": ["*://*.youtube.com/*", "https://tag.bainslamusic.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*"],
   "content_scripts": [
     {
       "matches": ["*://studio.youtube.com/*"],
