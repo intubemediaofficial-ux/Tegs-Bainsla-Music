@@ -1,14 +1,14 @@
 import { CompetitorTags } from "@/components/CompetitorTags";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function TagsViewerPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Competitor Tags</h1>
-        <p className="text-sm text-slate-400">
-          Read the real tags on any public YouTube video.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        icon="🕵️"
+        title="Competitor Tags"
+        subtitle={"Read the real tags on any public YouTube video, ranked by live search demand."}
+      />
       <CompetitorTags />
     </div>
   );

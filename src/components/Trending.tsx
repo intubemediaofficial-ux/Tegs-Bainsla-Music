@@ -35,6 +35,14 @@ interface Category {
   query: string;
 }
 
+function freshness(updatedAt: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(updatedAt)) / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  return `${Math.round(hrs / 24)} days ago`;
+}
+
 export function Trending({ isAdmin }: { isAdmin: boolean }) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -65,8 +73,12 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
   async function refresh() {
     setRefreshing(true);
     try {
-      await fetch("/api/cron/refresh", { method: "POST" });
-      await load();
+      const r = await fetch("/api/trending", { method: "POST" });
+      const j = await r.json();
+      if (r.ok) {
+        setSnapshots(j.snapshots ?? []);
+        setCategories(j.categories ?? []);
+      }
     } finally {
       setRefreshing(false);
     }
@@ -118,9 +130,9 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
         {adhoc && (
           <button
             onClick={() => setActive(adhoc.categoryId)}
-            className={`rounded-full px-3 py-1 text-sm ${
+            className={`rounded-full px-4 py-2 text-sm font-bold transition ${
               current?.categoryId === adhoc.categoryId
-                ? "bg-brand-600 text-white"
+                ? "bg-brand-600 text-white shadow-lg shadow-brand-600/20"
                 : "border border-brand-500/50 bg-ink-card text-brand-200"
             }`}
           >
@@ -131,20 +143,18 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
           <button
             key={s.categoryId}
             onClick={() => setActive(s.categoryId)}
-            className={`rounded-full px-3 py-1 text-sm ${
+            className={`rounded-full px-4 py-2 text-sm font-bold transition ${
               current?.categoryId === s.categoryId
-                ? "bg-brand-600 text-white"
-                : "border border-ink-line bg-ink-card text-slate-300"
+                ? "bg-brand-600 text-white shadow-lg shadow-brand-600/20"
+                : "border border-ink-line bg-ink-card text-slate-300 hover:border-brand-500/60"
             }`}
           >
             {s.label}
           </button>
         ))}
-        {isAdmin && (
-          <button onClick={refresh} disabled={refreshing} className="btn-ghost ml-auto">
-            {refreshing ? "Refreshing…" : "Refresh now"}
-          </button>
-        )}
+        <button onClick={refresh} disabled={refreshing} className="btn-ghost ml-auto font-bold">
+          {refreshing ? "Refreshing…" : "↻ Refresh now"}
+        </button>
       </div>
 
       {!current ? (
@@ -157,9 +167,12 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
         </div>
       ) : (
         <>
-          <div className="card border-brand-500/40">
-            <div className="mb-1 text-sm font-semibold text-brand-300">Why it&apos;s viral</div>
-            <p className="text-sm text-slate-200">{current.insight.recommendation}</p>
+          <div className="card border-brand-500/40 bg-gradient-to-br from-brand-600/10 via-ink-card to-ink-card">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-black text-brand-200">🔥 Why it&apos;s viral</h2>
+              <span className="chip text-[11px]">Updated {freshness(current.updatedAt)}</span>
+            </div>
+            <p className="text-sm font-medium text-slate-200">{current.insight.recommendation}</p>
             <div className="mt-3 flex flex-col gap-4 md:flex-row">
               <div className="flex-1">
                 <TagRankBlock
@@ -179,14 +192,20 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
               />
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Updated {new Date(current.updatedAt).toLocaleString()}
+              Only uploads from the last 30 days count as trending. Auto-refreshes every few hours —
+              hit “Refresh now” for this second&apos;s data. Last built{" "}
+              {new Date(current.updatedAt).toLocaleString()}.
             </p>
           </div>
 
-          <p className="text-xs text-slate-500">
-            Click a video to open its description + real tags (with search rank) and play it here —
-            it won&apos;t jump to YouTube.
-          </p>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-black text-slate-100">
+              Trending now · {current.label}
+            </h2>
+            <p className="text-xs text-slate-500">
+              Click a video for its description + real tags (with search rank) — no jump to YouTube.
+            </p>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {current.videos.slice(0, 12).map((v) => (
               <button
@@ -202,7 +221,7 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
                     url: v.url,
                   })
                 }
-                className="flex gap-3 rounded-lg border border-ink-line bg-ink-card p-2 text-left hover:border-brand-500"
+                className="flex gap-3 rounded-xl border border-ink-line bg-ink-card p-2 text-left transition hover:border-brand-500"
               >
                 <Image
                   src={v.thumbnail}
@@ -213,7 +232,7 @@ export function Trending({ isAdmin }: { isAdmin: boolean }) {
                   className="h-20 w-32 shrink-0 rounded object-cover"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="line-clamp-2 text-sm text-slate-100">{v.title}</div>
+                  <div className="line-clamp-2 text-sm font-bold text-slate-100">{v.title}</div>
                   <div className="mt-1 text-xs text-slate-500">
                     {v.views.toLocaleString()} views · {v.publishedText}
                   </div>

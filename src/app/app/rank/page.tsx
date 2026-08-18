@@ -1,12 +1,14 @@
 import { RankChecker } from "@/components/RankChecker";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function RankPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Rank Checker</h1>
-        <p className="text-sm text-slate-400">Find where your video ranks for any keyword.</p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        icon="📊"
+        title="Rank Checker"
+        subtitle={"Find where your video ranks for any keyword."}
+      />
       <RankChecker />
     </div>
   );

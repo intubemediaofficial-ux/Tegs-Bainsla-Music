@@ -1,14 +1,14 @@
 import { KeywordResearch } from "@/components/KeywordResearch";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function ResearchPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Keyword Research</h1>
-        <p className="text-sm text-slate-400">
-          Difficulty, volume, competition, related keywords, questions & top videos.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        icon="🔍"
+        title="Keyword Research"
+        subtitle={"Difficulty, volume, competition, related keywords, questions & top videos."}
+      />
       <KeywordResearch />
     </div>
   );

@@ -1,12 +1,14 @@
 import { TitleAnalyzer } from "@/components/TitleAnalyzer";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function TitlesPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Title Analyzer</h1>
-        <p className="text-sm text-slate-400">Score any title /100 and get concrete fixes.</p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        icon="✍️"
+        title="Title Analyzer"
+        subtitle={"Score any title /100, then build a full title from song + singer."}
+      />
       <TitleAnalyzer />
     </div>
   );
