@@ -16,17 +16,23 @@ export function hasYouTubeApiKey(): boolean {
   return !!KEY;
 }
 
-/** Turn an ISO publish date into a "3 days ago" style string (for velocity calc). */
+/**
+ * Turn an ISO publish date into a "3 days ago" style string (for velocity calc).
+ * Buckets are floored the way YouTube shows them, so a 19-month-old video reads
+ * "1 year ago" and never rounds up to 2.
+ */
 export function isoToAgeText(iso: string): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
-  const hours = Math.max(1, Math.round((Date.now() - then) / 3_600_000));
-  if (hours < 24) return `${hours} hours ago`;
-  const days = Math.round(hours / 24);
+  const hours = Math.max(1, Math.floor((Date.now() - then) / 3_600_000));
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "1 day ago";
   if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.round(days / 7)} weeks ago`;
-  if (days < 365) return `${Math.round(days / 30)} months ago`;
-  return `${Math.round(days / 365)} years ago`;
+  const plural = (n: number, unit: string) => (n === 1 ? `1 ${unit} ago` : `${n} ${unit}s ago`);
+  if (days < 30) return plural(Math.floor(days / 7), "week");
+  if (days < 365) return plural(Math.floor(days / 30), "month");
+  return plural(Math.floor(days / 365), "year");
 }
 
 function pickThumb(thumbs?: Record<string, { url?: string }>): string {
