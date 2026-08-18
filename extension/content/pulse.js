@@ -57,15 +57,11 @@
       return;
     }
     const p = data.pulse;
+    const vph = vphCell(p);
     const items = [
       { icon: "👁", ...windowCell("last 60 min", p.last60m) },
       { icon: "🕐", ...windowCell("last 48 h", p.last48h) },
-      {
-        icon: "⚡",
-        value: `${compact(p.currentVph)}/hr`,
-        hint: p.tracking ? "views per hour, measured" : "views per hour — lifetime average so far",
-        live: p.tracking,
-      },
+      { icon: "⚡", ...vph, value: `${vph.value}/hr` },
       { icon: "📊", value: compact(data.video.views), hint: "total views", live: true },
     ];
     for (const it of items) {
@@ -109,6 +105,23 @@
       label: `${name} (${covered})`,
       value: `${compact(d.views)}+`,
       hint: `${name} — ${compact(d.views)} views measured in the last ${d.coveredHours}h`,
+      live: false,
+    };
+  }
+
+  /**
+   * Views per hour. YouTube's public counter moves in jumps, so two samples
+   * minutes apart are often identical and the measured rate collapses to 0 on a
+   * video that is very much alive — fall back to the lifetime rate there.
+   */
+  function vphCell(p) {
+    if (p.tracking && p.currentVph > 0) {
+      return { label: "views / hr", value: compact(p.currentVph), hint: "views per hour, measured", live: true };
+    }
+    return {
+      label: "views / hr",
+      value: `~${compact(p.lifetimeVph)}`,
+      hint: "views per hour — lifetime average, the public counter has not moved since the last sample",
       live: false,
     };
   }
@@ -203,7 +216,7 @@
     rt.appendChild(
       statGrid([
         ...cells.map((c) => [c.label, c.value, c.hint]),
-        ["views / hr", compact(p.currentVph)],
+        ...[vphCell(p)].map((c) => [c.label, c.value, c.hint]),
       ])
     );
     rt.appendChild(sparkline(p.samples));
