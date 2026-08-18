@@ -163,12 +163,17 @@ export async function apiSearchPlaylists(
 
 export interface ApiVideoDetail {
   views: number;
+  likes: number;
+  comments: number;
   tags: string[];
   title: string;
   channel: string;
   channelId: string;
   publishedAt: string;
   description: string;
+  /** ISO-8601 duration as returned by the API, e.g. "PT3M42S". */
+  duration: string;
+  categoryId: string;
 }
 
 interface VideosListResponse {
@@ -181,8 +186,10 @@ interface VideosListResponse {
       publishedAt?: string;
       tags?: string[];
       description?: string;
+      categoryId?: string;
     };
-    statistics?: { viewCount?: string };
+    statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+    contentDetails?: { duration?: string };
   }[];
 }
 
@@ -200,7 +207,7 @@ export async function fetchVideoDetails(
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
     const url =
-      `${API}/videos?part=snippet,statistics&maxResults=50` +
+      `${API}/videos?part=snippet,statistics,contentDetails&maxResults=50` +
       `&id=${chunk.join(",")}&key=${KEY}`;
     try {
       const res = await fetch(url, { cache: "no-store" });
@@ -210,12 +217,16 @@ export async function fetchVideoDetails(
         if (!item.id) continue;
         out.set(item.id, {
           views: Number(item.statistics?.viewCount ?? 0),
+          likes: Number(item.statistics?.likeCount ?? 0),
+          comments: Number(item.statistics?.commentCount ?? 0),
           tags: item.snippet?.tags ?? [],
           title: item.snippet?.title ?? "",
           channel: item.snippet?.channelTitle ?? "",
           channelId: item.snippet?.channelId ?? "",
           publishedAt: item.snippet?.publishedAt ?? "",
           description: item.snippet?.description ?? "",
+          duration: item.contentDetails?.duration ?? "",
+          categoryId: item.snippet?.categoryId ?? "",
         });
       }
     } catch {
