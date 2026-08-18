@@ -1,6 +1,6 @@
 // Central fetch proxy so content scripts / popup share one code path and the
 // API key never leaks into page context.
-const DEFAULTS = { apiBase: "http://localhost:3000", apiKey: "" };
+const DEFAULTS = { apiBase: "https://tag.bainslamusic.com", apiKey: "" };
 
 async function getConfig() {
   const cfg = await chrome.storage.sync.get(DEFAULTS);
