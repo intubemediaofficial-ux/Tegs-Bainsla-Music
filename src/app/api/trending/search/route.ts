@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const schema = z.object({
-  query: z.string().min(1).max(120),
+  query: z.string().min(1).max(300),
 });
 
 export async function POST(req: NextRequest) {
