@@ -57,21 +57,15 @@
       return;
     }
     const p = data.pulse;
-    const span = (d) => (d.measured ? `measured over ${d.coveredHours}h` : "estimate from lifetime average");
     const items = [
+      { icon: "👁", ...windowCell("last 60 min", p.last60m) },
+      { icon: "🕐", ...windowCell("last 48 h", p.last48h) },
       {
-        icon: "👁",
-        value: compact(p.last60m.views),
-        hint: `last 60 min — ${span(p.last60m)}`,
-        live: p.last60m.measured && !p.last60m.partial,
+        icon: "⚡",
+        value: `${compact(p.currentVph)}/hr`,
+        hint: p.tracking ? "views per hour, measured" : "views per hour — lifetime average so far",
+        live: p.tracking,
       },
-      {
-        icon: "🕐",
-        value: compact(p.last48h.views),
-        hint: `last 48 h — ${span(p.last48h)}`,
-        live: p.last48h.measured && !p.last48h.partial,
-      },
-      { icon: "⚡", value: `${compact(p.currentVph)}/hr`, hint: "views per hour", live: p.tracking },
       { icon: "📊", value: compact(data.video.views), hint: "total views", live: true },
     ];
     for (const it of items) {
@@ -81,6 +75,42 @@
       box.appendChild(el("span", "bmt-s-val", it.value));
       strip.appendChild(box);
     }
+  }
+
+  /**
+   * A window's number, never pretending a 10-minute sample covers 48 hours.
+   * Fully covered -> the measured number. Barely covered -> a dash, because
+   * "0 views in the last 48 h" on a live video reads as dead when it only means
+   * "we have been watching for 10 minutes". In between -> "1.2K+ in 6h".
+   */
+  function windowCell(name, d) {
+    const target = d.windowHours || 1;
+    if (!d.measured) {
+      return {
+        label: name,
+        value: `~${compact(d.views)}`,
+        hint: `${name} — estimate from this video's lifetime average, real tracking starts in a few minutes`,
+        live: false,
+      };
+    }
+    if (!d.partial) {
+      return { label: name, value: compact(d.views), hint: `${name} — measured`, live: true };
+    }
+    const covered = `${d.coveredHours}h tracked so far`;
+    if (d.coveredHours < target * 0.25) {
+      return {
+        label: `${name} (${covered})`,
+        value: "—",
+        hint: `${name} — not enough history yet, only ${covered}`,
+        live: false,
+      };
+    }
+    return {
+      label: `${name} (${covered})`,
+      value: `${compact(d.views)}+`,
+      hint: `${name} — ${compact(d.views)} views measured in the last ${d.coveredHours}h`,
+      live: false,
+    };
   }
 
   /* --------------------------------- panel -------------------------------- */
@@ -165,12 +195,14 @@
 
     // Realtime block
     const rt = el("div");
-    const label = (name, d) => (d.measured && d.partial ? `${name} (${d.coveredHours}h so far)` : name);
+    const cells = [
+      windowCell("last 60 min", p.last60m),
+      windowCell("last 24 h", p.last24h),
+      windowCell("last 48 h", p.last48h),
+    ];
     rt.appendChild(
       statGrid([
-        [label("last 60 min", p.last60m), compact(p.last60m.views)],
-        [label("last 24 h", p.last24h), compact(p.last24h.views)],
-        [label("last 48 h", p.last48h), compact(p.last48h.views)],
+        ...cells.map((c) => [c.label, c.value, c.hint]),
         ["views / hr", compact(p.currentVph)],
       ])
     );

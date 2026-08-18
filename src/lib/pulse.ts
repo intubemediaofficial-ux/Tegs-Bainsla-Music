@@ -20,6 +20,8 @@ export interface PulseSample {
 }
 
 export interface PulseDelta {
+  /** The window this delta was asked for, in hours. */
+  windowHours: number;
   /** Views gained inside the window. */
   views: number;
   /** Hours actually covered by the samples (< window when history is short). */
@@ -89,6 +91,7 @@ function windowDelta(samples: PulseSample[], windowHours: number, fallbackVph: n
   const latest = samples[samples.length - 1];
   if (!latest || samples.length < 2) {
     return {
+      windowHours,
       views: Math.round(fallbackVph * windowHours),
       coveredHours: 0,
       measured: false,
@@ -103,6 +106,7 @@ function windowDelta(samples: PulseSample[], windowHours: number, fallbackVph: n
   const base = before.length > 0 ? before[before.length - 1] : inside[0];
   if (!base || base === latest) {
     return {
+      windowHours,
       views: Math.round(fallbackVph * windowHours),
       coveredHours: 0,
       measured: false,
@@ -112,6 +116,7 @@ function windowDelta(samples: PulseSample[], windowHours: number, fallbackVph: n
 
   const coveredHours = (latest.t - base.t) / 3600_000;
   return {
+    windowHours,
     views: Math.max(0, latest.views - base.views),
     coveredHours: Math.round(coveredHours * 100) / 100,
     measured: true,
