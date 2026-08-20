@@ -1,4 +1,5 @@
 import { store } from "./store";
+import { settingsSync } from "./settings";
 
 /**
  * Google OAuth for connecting a user's *own* YouTube channel.
@@ -36,17 +37,16 @@ const connKey = (userId: string) => `ytconn:${userId}`;
 const stateKey = (state: string) => `ytstate:${state}`;
 
 export function googleConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const s = settingsSync();
+  return Boolean(s.googleClientId && s.googleClientSecret);
 }
 
 function credentials(): { clientId: string; clientSecret: string; redirectUri: string } {
-  const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
+  const { googleClientId: clientId, googleClientSecret: clientSecret, appUrl } = settingsSync();
   if (!clientId || !clientSecret) {
     throw new Error("Google sign-in is not configured on the server");
   }
-  const base = (process.env.APP_URL ?? "https://tag.bainslamusic.com").replace(/\/+$/, "");
-  return { clientId, clientSecret, redirectUri: `${base}/api/auth/google/callback` };
+  return { clientId, clientSecret, redirectUri: `${appUrl}/api/auth/google/callback` };
 }
 
 /** Build the consent URL and remember which user started the flow. */

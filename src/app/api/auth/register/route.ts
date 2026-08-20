@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createUser } from "@/lib/users";
 import { setSessionCookie, toPublic } from "@/lib/auth";
 import { json, error } from "@/lib/api";
+import { getSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 
@@ -17,11 +18,17 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return error("Invalid input: email + password (min 6 chars) required");
 
+  const settings = await getSettings();
+  if (!settings.signupsEnabled) {
+    return error("Sign-ups are closed right now. Ask the admin for an account.", 403);
+  }
+
   try {
     const user = await createUser({
       email: parsed.data.email,
       name: parsed.data.name ?? "",
       password: parsed.data.password,
+      plan: settings.defaultPlan === "admin" ? "free" : settings.defaultPlan,
     });
     await setSessionCookie(user.id);
     return json({ user: toPublic(user) });

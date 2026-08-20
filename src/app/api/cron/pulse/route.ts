@@ -1,13 +1,14 @@
 import { NextRequest } from "next/server";
 import { sampleWatched } from "@/lib/pulse";
 import { getCurrentUser } from "@/lib/auth";
+import { getSettings } from "@/lib/settings";
 import { json, error } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 async function authorized(req: NextRequest): Promise<boolean> {
-  const secret = process.env.CRON_SECRET;
+  const { cronSecret: secret } = await getSettings();
   const auth = req.headers.get("authorization");
   const headerSecret = req.headers.get("x-cron-secret");
   if (secret && (auth === `Bearer ${secret}` || headerSecret === secret)) return true;

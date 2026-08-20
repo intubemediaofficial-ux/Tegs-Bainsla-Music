@@ -7,13 +7,18 @@
  * videos.list / playlists.list is cheap (1 unit, batched by 50).
  */
 
+import { youtubeApiKey } from "./settings";
 import type { VideoLite, PlaylistLite } from "./types";
 
-const KEY = process.env.YOUTUBE_API_KEY?.trim();
 const API = "https://www.googleapis.com/youtube/v3";
 
+/** The key currently configured (admin panel value, else YOUTUBE_API_KEY). */
+function key(): string | undefined {
+  return youtubeApiKey();
+}
+
 export function hasYouTubeApiKey(): boolean {
-  return !!KEY;
+  return !!key();
 }
 
 /**
@@ -74,7 +79,7 @@ export async function apiSearchVideos(
   limit = 20,
   opts: { publishedAfterDays?: number; order?: "relevance" | "viewCount" | "date" } = {}
 ): Promise<VideoLite[]> {
-  if (!KEY) return [];
+  if (!key()) return [];
   const since = opts.publishedAfterDays
     ? `&publishedAfter=${new Date(
         Date.now() - opts.publishedAfterDays * 86_400_000
@@ -84,7 +89,7 @@ export async function apiSearchVideos(
   const url =
     `${API}/search?part=snippet&type=video&maxResults=${Math.min(limit, 50)}` +
     `&regionCode=${encodeURIComponent(gl)}&q=${encodeURIComponent(query)}` +
-    `${since}${order}&key=${KEY}`;
+    `${since}${order}&key=${key()}`;
   let data: SearchListResponse;
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -121,10 +126,10 @@ export async function apiSearchPlaylists(
   gl = "IN",
   limit = 8
 ): Promise<PlaylistLite[]> {
-  if (!KEY) return [];
+  if (!key()) return [];
   const url =
     `${API}/search?part=snippet&type=playlist&maxResults=${Math.min(limit, 50)}` +
-    `&regionCode=${encodeURIComponent(gl)}&q=${encodeURIComponent(query)}&key=${KEY}`;
+    `&regionCode=${encodeURIComponent(gl)}&q=${encodeURIComponent(query)}&key=${key()}`;
   let data: SearchListResponse;
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -141,7 +146,7 @@ export async function apiSearchPlaylists(
     const chunk = ids.slice(i, i + 50);
     try {
       const res = await fetch(
-        `${API}/playlists?part=contentDetails&maxResults=50&id=${chunk.join(",")}&key=${KEY}`,
+        `${API}/playlists?part=contentDetails&maxResults=50&id=${chunk.join(",")}&key=${key()}`,
         { cache: "no-store" }
       );
       if (!res.ok) break;
@@ -208,13 +213,13 @@ export async function fetchVideoDetails(
   ids: string[]
 ): Promise<Map<string, ApiVideoDetail>> {
   const out = new Map<string, ApiVideoDetail>();
-  if (!KEY || ids.length === 0) return out;
+  if (!key() || ids.length === 0) return out;
 
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
     const url =
       `${API}/videos?part=snippet,statistics,contentDetails&maxResults=50` +
-      `&id=${chunk.join(",")}&key=${KEY}`;
+      `&id=${chunk.join(",")}&key=${key()}`;
     try {
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) break;
@@ -297,13 +302,13 @@ export async function apiChannelStats(
 ): Promise<Map<string, ApiChannelStats>> {
   const out = new Map<string, ApiChannelStats>();
   const ids = [...new Set(channelIds.filter(Boolean))];
-  if (!KEY || ids.length === 0) return out;
+  if (!key() || ids.length === 0) return out;
 
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
     try {
       const res = await fetch(
-        `${API}/channels?part=statistics&maxResults=50&id=${chunk.join(",")}&key=${KEY}`,
+        `${API}/channels?part=statistics&maxResults=50&id=${chunk.join(",")}&key=${key()}`,
         { cache: "no-store" }
       );
       if (!res.ok) break;
@@ -374,12 +379,12 @@ const CHANNEL_PARTS = "snippet,statistics,brandingSettings,contentDetails";
  * then falls back to search.list (100 units) for old /c/ and /user/ URLs.
  */
 export async function apiGetChannel(ref: string): Promise<ApiChannel | null> {
-  if (!KEY) return null;
+  if (!key()) return null;
   const { id, handle, search } = parseChannelRef(ref);
 
   const byUrl = async (qs: string): Promise<ApiChannel | null> => {
     try {
-      const res = await fetch(`${API}/channels?part=${CHANNEL_PARTS}&${qs}&key=${KEY}`, {
+      const res = await fetch(`${API}/channels?part=${CHANNEL_PARTS}&${qs}&key=${key()}`, {
         cache: "no-store",
       });
       if (!res.ok) return null;
@@ -401,7 +406,7 @@ export async function apiGetChannel(ref: string): Promise<ApiChannel | null> {
   if (!term) return null;
   try {
     const res = await fetch(
-      `${API}/search?part=snippet&type=channel&maxResults=1&q=${encodeURIComponent(term)}&key=${KEY}`,
+      `${API}/search?part=snippet&type=channel&maxResults=1&q=${encodeURIComponent(term)}&key=${key()}`,
       { cache: "no-store" }
     );
     if (!res.ok) return null;
@@ -423,14 +428,14 @@ export async function apiChannelUploads(
   uploadsPlaylistId: string,
   limit = 30
 ): Promise<VideoLite[]> {
-  if (!KEY || !uploadsPlaylistId) return [];
+  if (!key() || !uploadsPlaylistId) return [];
   const ids: string[] = [];
   let pageToken = "";
   while (ids.length < limit) {
     const url =
       `${API}/playlistItems?part=contentDetails&maxResults=50` +
       `&playlistId=${encodeURIComponent(uploadsPlaylistId)}` +
-      `${pageToken ? `&pageToken=${pageToken}` : ""}&key=${KEY}`;
+      `${pageToken ? `&pageToken=${pageToken}` : ""}&key=${key()}`;
     try {
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) break;

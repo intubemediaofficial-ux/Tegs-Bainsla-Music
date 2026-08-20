@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { ownerChannelStats } from "@/lib/yt-analytics";
-import { requireUser, isResponse, json, error } from "@/lib/api";
+import { requireUser, isResponse, json, error, requireFeature } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -9,6 +9,8 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const user = await requireUser(req);
   if (isResponse(user)) return user;
+  const denied = requireFeature(user, "analytics");
+  if (denied) return denied;
 
   const days = Number(req.nextUrl.searchParams.get("days") ?? 28);
   try {
