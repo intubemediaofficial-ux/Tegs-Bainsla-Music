@@ -8,7 +8,7 @@ export function PageHeader({
   subtitle: string;
 }) {
   return (
-    <div className="rounded-2xl border border-ink-line bg-gradient-to-br from-brand-600/20 via-ink-card to-ink-card p-5">
+    <div className="rounded-2xl border border-brand-500/30 bg-gradient-to-br from-brand-600/35 via-ink-card/80 to-accent-cyan/15 p-5 shadow-xl shadow-brand-900/30 backdrop-blur-md">
       <div className="flex items-start gap-3">
         <span className="text-3xl leading-none">{icon}</span>
         <div className="min-w-0">

@@ -21,11 +21,17 @@ const config: Config = {
           800: "#5b21b6",
           900: "#4c1d95"
         },
+        accent: {
+          pink: "#ec4899",
+          cyan: "#06b6d4",
+          amber: "#f59e0b",
+          lime: "#84cc16"
+        },
         ink: {
-          DEFAULT: "#0a0a0f",
-          soft: "#14141c",
-          card: "#1b1b26",
-          line: "#2a2a3a"
+          DEFAULT: "#08070f",
+          soft: "#12111c",
+          card: "#191826",
+          line: "#2e2b41"
         }
       },
       fontFamily: {
