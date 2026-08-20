@@ -11,10 +11,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="border-b border-ink-line lg:min-h-screen lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r">
+      <aside className="border-b border-ink-line bg-gradient-to-b from-brand-900/50 via-ink-soft/85 to-ink-soft/85 backdrop-blur-md lg:min-h-screen lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between px-5 py-4">
           <Link href="/admin" className="font-black">
-            Admin <span className="text-brand-400">Panel</span>
+            Admin <span className="grad-text">Panel</span>
           </Link>
         </div>
         <AdminNav />

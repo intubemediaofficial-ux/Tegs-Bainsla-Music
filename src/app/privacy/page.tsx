@@ -14,7 +14,9 @@ export default function PrivacyPage() {
       <Link href="/" className="text-xs text-brand-400">
         ← Back to Bainsla Music Tags
       </Link>
-      <h1 className="mt-4 text-3xl font-black text-white">Privacy Policy</h1>
+      <h1 className="mt-4 text-3xl font-black text-white">
+        Privacy <span className="grad-text">Policy</span>
+      </h1>
       <p className="mt-1 text-xs text-slate-500">Last updated: {UPDATED}</p>
 
       <Section title="Who we are">
@@ -93,8 +95,8 @@ export default function PrivacyPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6">
-      <h2 className="mb-2 text-lg font-bold text-white">{title}</h2>
+    <section className="card mt-5">
+      <h2 className="mb-2 text-lg font-bold text-brand-200">{title}</h2>
       <div className="space-y-2 text-sm leading-relaxed text-slate-300">{children}</div>
     </section>
   );

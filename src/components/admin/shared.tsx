@@ -48,7 +48,7 @@ export function Section({
     <section className="card">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-200">
             {title}
           </h2>
           {hint && <p className="mt-1 max-w-2xl text-xs text-slate-500">{hint}</p>}
@@ -62,8 +62,8 @@ export function Section({
 
 export function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="card text-center">
-      <div className="text-3xl font-black">{value}</div>
+    <div className="card bg-gradient-to-br from-brand-600/20 via-ink-card/70 to-accent-cyan/10 text-center">
+      <div className="grad-text text-3xl font-black">{value}</div>
       <div className="text-xs text-slate-400">{label}</div>
       {hint && <div className="mt-1 text-[11px] text-slate-500">{hint}</div>}
     </div>
@@ -73,7 +73,11 @@ export function Stat({ label, value, hint }: { label: string; value: string | nu
 export function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
     <span
-      className={`chip ${ok ? "text-green-300" : "text-amber-300"}`}
+      className={`chip ${
+        ok
+          ? "border-accent-lime/40 bg-accent-lime/10 text-accent-lime"
+          : "border-accent-amber/40 bg-accent-amber/10 text-accent-amber"
+      }`}
       title={ok ? "Configured" : "Not configured"}
     >
       {ok ? "●" : "○"} {children}

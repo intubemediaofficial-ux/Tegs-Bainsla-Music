@@ -5,10 +5,10 @@ export default function RegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center px-5">
       <div className="w-full max-w-sm">
-        <Link href="/" className="mb-6 block text-center text-lg font-black">
-          Bainsla<span className="text-brand-400">Tags</span>
+        <Link href="/" className="mb-6 block text-center text-2xl font-black">
+          Bainsla<span className="grad-text">Tags</span>
         </Link>
-        <div className="card">
+        <div className="card bg-gradient-to-br from-accent-pink/15 via-ink-card/80 to-brand-600/20">
           <h1 className="mb-1 text-xl font-bold">Create your account</h1>
           <p className="mb-5 text-sm text-slate-400">Free forever plan included.</p>
           <AuthForm mode="register" />

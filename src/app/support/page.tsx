@@ -14,7 +14,9 @@ export default function SupportPage() {
       <Link href="/" className="text-xs text-brand-400">
         ← Back to Bainsla Music Tags
       </Link>
-      <h1 className="mt-4 text-3xl font-black text-white">Bainsla Music Tags Support</h1>
+      <h1 className="mt-4 text-3xl font-black text-white">
+        Bainsla Music Tags <span className="grad-text">Support</span>
+      </h1>
       <p className="mt-3 text-sm leading-relaxed text-slate-300">
         Need help with Bainsla Music Tags, the Chrome extension, your account, API key, YouTube
         connection, billing, or another feature?
@@ -62,8 +64,8 @@ export default function SupportPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6">
-      <h2 className="mb-2 text-lg font-bold text-white">{title}</h2>
+    <section className="card mt-5">
+      <h2 className="mb-2 text-lg font-bold text-brand-200">{title}</h2>
       <div className="space-y-2 text-sm leading-relaxed text-slate-300">{children}</div>
     </section>
   );
