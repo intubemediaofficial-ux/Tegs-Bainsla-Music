@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 const limitField = z.number().int().min(0).max(1_000_000).nullable();
 
 const schema = z.object({
-  plan: z.enum(["free", "starter", "creator", "admin"]).optional(),
+  plan: z.enum(["free", "starter", "creator", "unlimited", "admin"]).optional(),
   role: z.enum(["user", "admin"]).optional(),
   banned: z.boolean().optional(),
   unlimited: z.boolean().optional(),

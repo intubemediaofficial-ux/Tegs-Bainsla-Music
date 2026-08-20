@@ -13,7 +13,7 @@ interface AdminUser {
   id: string;
   name: string;
   email: string;
-  plan: "free" | "starter" | "creator" | "admin";
+  plan: "free" | "starter" | "creator" | "unlimited" | "admin";
   role: "user" | "admin";
   banned?: boolean;
   unlimited?: boolean;
@@ -26,7 +26,7 @@ interface Category {
   query: string;
 }
 
-const PLAN_OPTS = ["free", "starter", "creator", "admin"] as const;
+const PLAN_OPTS = ["free", "starter", "creator", "unlimited", "admin"] as const;
 
 export function AdminPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -166,7 +166,7 @@ export function AdminPanel() {
                 </td>
                 <td>
                   <select
-                    className="input w-28 py-1"
+                    className="input w-32 py-1"
                     value={u.plan}
                     onChange={(e) => updateUser(u.id, { plan: e.target.value })}
                   >

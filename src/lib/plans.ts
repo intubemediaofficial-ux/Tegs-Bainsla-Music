@@ -1,4 +1,4 @@
-export type PlanId = "free" | "starter" | "creator" | "admin";
+export type PlanId = "free" | "starter" | "creator" | "unlimited" | "admin";
 
 export interface PlanLimits {
   /** per-day generate calls (tags/titles/hashtags/package each counted together) */
@@ -62,6 +62,24 @@ export const PLANS: Record<PlanId, Plan> = {
       "Why-viral analysis + trending alerts",
       "Priority Chrome extension",
       "Bulk export",
+    ],
+  },
+  unlimited: {
+    id: "unlimited",
+    name: "Unlimited",
+    price: 0,
+    blurb: "No daily limits (team / granted access)",
+    limits: {
+      generations: 1_000_000,
+      research: 1_000_000,
+      artists: 1_000_000,
+      maxTags: 200,
+    },
+    features: [
+      "Unlimited generations / day",
+      "Unlimited keyword research / day",
+      "Unlimited artist presets",
+      "Chrome extension access",
     ],
   },
   admin: {
