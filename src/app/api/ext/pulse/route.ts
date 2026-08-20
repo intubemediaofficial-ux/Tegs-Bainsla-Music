@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildVideoReport, parseVideoId } from "@/lib/video-report";
-import { requireUser, isResponse, json, error } from "@/lib/api";
+import { requireUser, isResponse, json, error, requireFeature } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,6 +28,9 @@ export async function GET(req: NextRequest) {
     for (const [k, v] of Object.entries(CORS)) user.headers.set(k, v);
     return user;
   }
+
+  const denied = requireFeature(user, "extension");
+  if (denied) return withCors(denied);
 
   const videoId = parseVideoId(req.nextUrl.searchParams.get("video") ?? "");
   if (!videoId) return withCors(error("Could not parse a video id"));

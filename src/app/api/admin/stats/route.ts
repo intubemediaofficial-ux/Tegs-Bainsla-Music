@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { listUsers } from "@/lib/users";
 import { getUsage } from "@/lib/usage";
+import { listCategories } from "@/lib/trending";
+import { store } from "@/lib/store";
+import { getSettings } from "@/lib/settings";
 import { requireAdmin, isResponse, json } from "@/lib/api";
 import type { PlanId } from "@/lib/plans";
 
@@ -30,10 +33,28 @@ export async function GET(req: NextRequest) {
     })
   );
 
+  const [categories, settings, connections] = await Promise.all([
+    listCategories(),
+    getSettings(),
+    store.list<{ userId: string }>("ytconn:"),
+  ]);
+
   return json({
     totalUsers: users.length,
     byPlan,
     generationsToday,
     researchToday,
+    bannedUsers: users.filter((u) => u.banned).length,
+    unlimitedUsers: users.filter((u) => u.unlimited).length,
+    connectedChannels: connections.length,
+    status: {
+      youtubeApiKeys: settings.youtubeApiKeys.length,
+      googleOAuth: Boolean(settings.googleClientId && settings.googleClientSecret),
+      cronSecret: Boolean(settings.cronSecret),
+      appUrl: settings.appUrl,
+      signupsEnabled: settings.signupsEnabled,
+      defaultPlan: settings.defaultPlan,
+      categories: categories.length,
+    },
   });
 }

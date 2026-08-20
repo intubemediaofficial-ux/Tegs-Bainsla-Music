@@ -1,3 +1,4 @@
+import type { FeatureAccess } from "./access";
 import type { PlanId, PlanLimits } from "./plans";
 import type { ViralWhy } from "./why-viral";
 
@@ -15,6 +16,8 @@ export interface User {
   unlimited?: boolean;
   /** Admin overrides for individual limits; anything absent falls back to the plan. */
   limitOverrides?: Partial<PlanLimits>;
+  /** Admin switches for individual features; anything absent means allowed. */
+  access?: FeatureAccess;
 }
 
 export type PublicUser = Omit<User, "passwordHash">;

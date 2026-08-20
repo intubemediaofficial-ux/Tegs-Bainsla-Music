@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { buildTagString, cleanTags, rankTags, shortSeedOf } from "@/lib/youtube";
 import { apiGetChannel, apiChannelUploads, hasYouTubeApiKey } from "@/lib/youtube-api";
-import { requireUser, enforceQuota, isResponse, json, error } from "@/lib/api";
+import { requireUser, enforceQuota, isResponse, json, error, requireFeature } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,6 +19,8 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const user = await requireUser(req);
   if (isResponse(user)) return user;
+  const denied = requireFeature(user, "research");
+  if (denied) return denied;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

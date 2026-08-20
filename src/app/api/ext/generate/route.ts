@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { generatePackage } from "@/lib/generate";
 import { getUserByApiKey } from "@/lib/auth";
-import { enforceQuota, json, error } from "@/lib/api";
+import { enforceQuota, json, error, requireFeature } from "@/lib/api";
+import { primeSettings } from "@/lib/settings";
 import { effectiveLimits } from "@/lib/usage";
 
 export const runtime = "nodejs";
@@ -25,9 +26,16 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  await primeSettings();
   const apiKey = req.headers.get("x-api-key") ?? "";
   const user = await getUserByApiKey(apiKey);
   if (!user) return error("Invalid API key", 401);
+
+  const denied = requireFeature(user, "extension") ?? requireFeature(user, "generate");
+  if (denied) {
+    denied.headers.set("Access-Control-Allow-Origin", "*");
+    return denied;
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

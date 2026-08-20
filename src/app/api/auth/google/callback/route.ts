@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { completeAuth, consumeState } from "@/lib/google-oauth";
+import { primeSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,7 @@ function back(req: NextRequest, params: Record<string, string>): NextResponse {
 
 /** Google sends the user back here after consent. */
 export async function GET(req: NextRequest) {
+  await primeSettings();
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   const denied = req.nextUrl.searchParams.get("error");
