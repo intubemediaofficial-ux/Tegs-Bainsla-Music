@@ -75,6 +75,7 @@ Requires a free account at https://tag.bainslamusic.com — paste your API key o
   information" (the dashboard API key); not sold, not used for anything unrelated, not used for
   creditworthiness.
 - **Privacy policy URL:** https://tag.bainslamusic.com/privacy
+- **Support URL:** https://tag.bainslamusic.com/support
 
 ## Screenshots (1280×800 each, at least one required)
 
