@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { addArtist, listArtists, removeArtist } from "@/lib/artists";
-import { planLimits } from "@/lib/plans";
 import { requireUser, isResponse, json, error } from "@/lib/api";
+import { effectiveLimits } from "@/lib/usage";
 import type { User } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return error("name is required");
 
   const existing = await listArtists(u.id);
-  if (existing.length >= planLimits(u.plan).artists) {
+  if (existing.length >= effectiveLimits(u).artists) {
     return error("Artist preset limit reached for your plan. Upgrade for more.", 429);
   }
 

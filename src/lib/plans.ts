@@ -82,3 +82,10 @@ export const PLANS: Record<PlanId, Plan> = {
 export function planLimits(id: PlanId): PlanLimits {
   return (PLANS[id] ?? PLANS.free).limits;
 }
+
+/** Any limit at or above this is shown as "unlimited". */
+export const UNLIMITED = 1_000_000;
+
+export function isUnlimited(value: number): boolean {
+  return value >= UNLIMITED;
+}

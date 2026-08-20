@@ -1,6 +1,30 @@
 import { store } from "./store";
-import { planLimits } from "./plans";
+import { planLimits, UNLIMITED } from "./plans";
+import type { PlanLimits } from "./plans";
 import type { UsageRecord, User } from "./types";
+
+/**
+ * The limits actually applied to a user: the plan's limits, with any admin
+ * override on top, and everything lifted to unlimited when the user is flagged.
+ */
+export function effectiveLimits(user: User): PlanLimits {
+  const base = planLimits(user.plan);
+  const merged: PlanLimits = { ...base };
+  const over = user.limitOverrides;
+  if (over) {
+    for (const kind of ["generations", "research", "artists", "maxTags"] as const) {
+      const value = over[kind];
+      if (typeof value === "number" && value >= 0) merged[kind] = value;
+    }
+  }
+  if (user.unlimited) {
+    merged.generations = UNLIMITED;
+    merged.research = UNLIMITED;
+    merged.artists = UNLIMITED;
+    merged.maxTags = Math.max(merged.maxTags, base.maxTags);
+  }
+  return merged;
+}
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -29,7 +53,7 @@ export interface QuotaResult {
  * Check remaining quota for a user without consuming it.
  */
 export async function checkQuota(user: User, kind: QuotaKind): Promise<QuotaResult> {
-  const limits = planLimits(user.plan);
+  const limits = effectiveLimits(user);
   const usage = await getUsage(user.id);
   const limit = limits[kind];
   const used = usage[kind];

@@ -1,4 +1,4 @@
-import type { PlanId } from "./plans";
+import type { PlanId, PlanLimits } from "./plans";
 import type { ViralWhy } from "./why-viral";
 
 export interface User {
@@ -11,6 +11,10 @@ export interface User {
   apiKey: string;
   createdAt: string;
   banned?: boolean;
+  /** Admin switch: daily quotas never run out for this user. */
+  unlimited?: boolean;
+  /** Admin overrides for individual limits; anything absent falls back to the plan. */
+  limitOverrides?: Partial<PlanLimits>;
 }
 
 export type PublicUser = Omit<User, "passwordHash">;
