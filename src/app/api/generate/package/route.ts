@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { generatePackage } from "@/lib/generate";
-import { planLimits } from "@/lib/plans";
 import { requireUser, enforceQuota, isResponse, json, error } from "@/lib/api";
+import { effectiveLimits } from "@/lib/usage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const result = await generatePackage(parsed.data.query, {
       hl: parsed.data.hl,
       gl: parsed.data.gl,
-      maxTags: planLimits(user.plan).maxTags,
+      maxTags: effectiveLimits(user).maxTags,
     });
     return json(result);
   } catch (e) {

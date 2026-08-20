@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { isUnlimited } from "@/lib/plans";
 
 interface Stats {
   totalUsers: number;
@@ -12,10 +13,12 @@ interface AdminUser {
   id: string;
   name: string;
   email: string;
-  plan: "free" | "starter" | "creator" | "admin";
+  plan: "free" | "starter" | "creator" | "unlimited" | "admin";
   role: "user" | "admin";
   banned?: boolean;
+  unlimited?: boolean;
   usage: { generations: number; research: number };
+  limits: { generations: number; research: number; artists: number; maxTags: number };
 }
 interface Category {
   id: string;
@@ -23,7 +26,7 @@ interface Category {
   query: string;
 }
 
-const PLAN_OPTS = ["free", "starter", "creator", "admin"] as const;
+const PLAN_OPTS = ["free", "starter", "creator", "unlimited", "admin"] as const;
 
 export function AdminPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -32,6 +35,7 @@ export function AdminPanel() {
   const [label, setLabel] = useState("");
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   async function loadAll() {
     const [s, u, c] = await Promise.all([
@@ -55,6 +59,28 @@ export function AdminPanel() {
       body: JSON.stringify(patch),
     });
     await loadAll();
+  }
+
+  async function setLimit(u: AdminUser, kind: "generations" | "research", raw: string) {
+    const trimmed = raw.trim();
+    const value = trimmed === "" ? null : Number(trimmed);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) return;
+    await updateUser(u.id, { limitOverrides: { [kind]: value } });
+  }
+
+  async function unlimitedForEveryone() {
+    if (!confirm("Give unlimited daily usage to every user?")) return;
+    setBulkBusy(true);
+    try {
+      await fetch("/api/admin/users/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlimited: true }),
+      });
+      await loadAll();
+    } finally {
+      setBulkBusy(false);
+    }
   }
 
   async function deleteUser(id: string) {
@@ -107,15 +133,25 @@ export function AdminPanel() {
       )}
 
       <div className="card overflow-x-auto">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Users
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Users
+          </h2>
+          <button onClick={unlimitedForEveryone} disabled={bulkBusy} className="btn-ghost">
+            {bulkBusy ? "Applying…" : "Unlimited for everyone"}
+          </button>
+        </div>
+        <p className="mb-3 text-xs text-slate-500">
+          “Unlimited” switches off the daily cap for that user. Or type an exact daily number
+          in the boxes — leave a box empty to fall back to the plan’s limit.
+        </p>
         <table className="w-full text-left text-sm">
           <thead className="text-xs uppercase text-slate-500">
             <tr>
               <th className="py-2">User</th>
               <th>Plan</th>
               <th>Role</th>
+              <th>Daily limit</th>
               <th>Today</th>
               <th>Status</th>
               <th></th>
@@ -130,7 +166,7 @@ export function AdminPanel() {
                 </td>
                 <td>
                   <select
-                    className="input w-28 py-1"
+                    className="input w-32 py-1"
                     value={u.plan}
                     onChange={(e) => updateUser(u.id, { plan: e.target.value })}
                   >
@@ -151,8 +187,36 @@ export function AdminPanel() {
                     {u.role}
                   </button>
                 </td>
-                <td className="text-xs text-slate-400">
-                  {u.usage.generations}g / {u.usage.research}r
+                <td>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className={`chip ${u.unlimited ? "text-green-300" : "text-slate-400"}`}
+                      onClick={() => updateUser(u.id, { unlimited: !u.unlimited })}
+                      title="Never run out of daily generations / research"
+                    >
+                      {u.unlimited ? "unlimited ∞" : "limited"}
+                    </button>
+                    {!u.unlimited && (
+                      <>
+                        <LimitInput
+                          label="gen"
+                          value={u.limits.generations}
+                          onSave={(v) => setLimit(u, "generations", v)}
+                        />
+                        <LimitInput
+                          label="res"
+                          value={u.limits.research}
+                          onSave={(v) => setLimit(u, "research", v)}
+                        />
+                      </>
+                    )}
+                  </div>
+                </td>
+                <td className="whitespace-nowrap text-xs text-slate-400">
+                  {u.usage.generations}
+                  {isUnlimited(u.limits.generations) ? "" : `/${u.limits.generations}`}g /{" "}
+                  {u.usage.research}
+                  {isUnlimited(u.limits.research) ? "" : `/${u.limits.research}`}r
                 </td>
                 <td>
                   <button
@@ -215,6 +279,36 @@ export function AdminPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+function LimitInput({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: number;
+  onSave: (raw: string) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  return (
+    <label className="flex items-center gap-1 text-xs text-slate-500">
+      {label}
+      <input
+        className="input w-16 px-1 py-1 text-center"
+        value={draft}
+        inputMode="numeric"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => draft !== String(value) && onSave(draft)}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      />
+    </label>
   );
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CopyButton } from "./Copy";
+import { isUnlimited } from "@/lib/plans";
 
 interface Me {
   user: { name: string; email: string; plan: string; apiKey: string };
@@ -164,17 +165,19 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 function Meter({ label, used, limit }: { label: string; used: number; limit: number }) {
-  const pct = Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
+  const free = isUnlimited(limit);
+  const pct = free ? 0 : Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
   return (
     <div className="rounded-lg border border-ink-line bg-ink-soft p-3">
       <div className="mb-1 flex justify-between text-xs text-slate-400">
         <span>{label}</span>
-        <span>
-          {used} / {limit}
-        </span>
+        <span>{free ? `${used} / unlimited` : `${used} / ${limit}`}</span>
       </div>
       <div className="h-2 rounded-full bg-ink">
-        <div className="h-2 rounded-full bg-brand-500" style={{ width: `${pct}%` }} />
+        <div
+          className={`h-2 rounded-full ${free ? "bg-emerald-500/60" : "bg-brand-500"}`}
+          style={{ width: free ? "100%" : `${pct}%` }}
+        />
       </div>
     </div>
   );

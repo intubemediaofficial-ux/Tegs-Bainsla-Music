@@ -11,7 +11,13 @@ export async function GET(req: NextRequest) {
   if (isResponse(admin)) return admin;
 
   const users = await listUsers();
-  const byPlan: Record<PlanId, number> = { free: 0, starter: 0, creator: 0, admin: 0 };
+  const byPlan: Record<PlanId, number> = {
+    free: 0,
+    starter: 0,
+    creator: 0,
+    unlimited: 0,
+    admin: 0,
+  };
   let generationsToday = 0;
   let researchToday = 0;
 
