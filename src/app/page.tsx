@@ -117,8 +117,18 @@ export default function Home() {
       </section>
 
       <footer className="border-t border-ink-line py-8 text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} Bainsla Music Tags. Uses YouTube public data. Not affiliated
-        with YouTube.
+        <p>
+          © {new Date().getFullYear()} Bainsla Music Tags. Uses YouTube public data. Not affiliated
+          with YouTube.
+        </p>
+        <p className="mt-2 flex justify-center gap-4 text-xs">
+          <Link href="/support" className="hover:text-slate-300">
+            Support
+          </Link>
+          <Link href="/privacy" className="hover:text-slate-300">
+            Privacy Policy
+          </Link>
+        </p>
       </footer>
     </div>
   );
