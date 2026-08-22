@@ -30,7 +30,13 @@ export function ConnectExtension({ email }: { email: string }) {
 
   useEffect(() => {
     function onDone(event: Event) {
-      const detail = (event as CustomEvent<ConnectedDetail>).detail || {};
+      const raw = (event as CustomEvent<string>).detail;
+      let detail: ConnectedDetail = {};
+      try {
+        detail = typeof raw === "string" ? (JSON.parse(raw) as ConnectedDetail) : {};
+      } catch {
+        detail = { error: "Unexpected reply from the extension." };
+      }
       if (detail.error) {
         setStatus("failed");
         setMessage(detail.error);

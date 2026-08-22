@@ -24,16 +24,21 @@ Upload rejects the package if `manifest.json` breaks these limits: `name` ≤ 75
 
 ## Listing fields
 
-**Name**
+Keywords people actually search in the store — use each one naturally in the name, short
+description and first two lines of the detailed description (no keyword lists, that gets rejected):
+`youtube tags`, `tag generator`, `youtube seo`, `keyword research`, `hashtag generator`,
+`youtube analytics`, `title analyzer`, `trending videos`, `vidiq alternative`.
+
+**Name** (75 char max — the strongest ranking field, keep the keywords in it)
 
 ```
-Bainsla Music Tags — YouTube Tags, Titles & Trends
+Bainsla Music Tags: YouTube Tags, SEO Keywords & Analytics
 ```
 
 **Short description** (132 char max)
 
 ```
-Real ranking titles, 500-char tag box, hashtags and live 60-min/48-hour view pulse for the YouTube video you are watching.
+YouTube tag generator & SEO keyword research: ranked tags, titles, hashtags and live 60-min/48-hour view analytics.
 ```
 
 **Category:** Productivity — **Language:** Hindi (also English)
@@ -41,7 +46,9 @@ Real ranking titles, 500-char tag box, hashtags and live 60-min/48-hour view pul
 **Detailed description**
 
 ```
-Bainsla Music Tags turns any YouTube page into a research desk for music creators — Bhajan, Haryanvi, Rajasthani, Punjabi, Gurjar Rasiya, DJ remix or any other category.
+Bainsla Music Tags is a YouTube tag generator, keyword research and SEO analytics tool that works right on the YouTube page you are watching — a lightweight vidIQ-style alternative built for music creators (Bhajan, Haryanvi, Rajasthani, Punjabi, Gurjar Rasiya, DJ remix) and for any other category, channel or keyword.
+
+Extract the tags of any video, see which keywords are actually searched, score your title, get hashtags and watch how fast a video is gaining views.
 
 Open a video and a compact strip appears in the YouTube header:
 • views gained in the last 60 minutes and last 48 hours (measured by sampling, updated every 5 minutes)
@@ -57,7 +64,7 @@ Click it for the full report:
 
 Connect your own channel with Google (optional) and your videos also show official YouTube Analytics: real traffic sources (search vs suggested vs browse), the exact search terms bringing views, watch time, average viewed percentage and subscribers gained. Other creators' videos always stay clearly labelled public estimates — YouTube keeps private analytics with the owner, and so do we.
 
-Requires a free account at https://tag.bainslamusic.com — paste your API key once in the extension options.
+Requires a free account at https://tag.bainslamusic.com. Click "Sign in / Sign up" in the extension, log in once, and the extension connects itself — no API key to copy.
 ```
 
 ## Privacy practices tab
@@ -65,7 +72,7 @@ Requires a free account at https://tag.bainslamusic.com — paste your API key o
 - **Single purpose:** "Show YouTube SEO research (tags, titles, trends and view velocity) for the
   YouTube page the user is viewing."
 - **Permission justifications:**
-  - `storage` — saves the user's dashboard address and API key.
+  - `storage` — saves the signed-in account (dashboard address and access key) locally.
   - `*://*.youtube.com/*` — the overlay renders on YouTube pages and reads the video id from the URL.
   - `https://tag.bainslamusic.com/*` — the extension calls the user's own dashboard API for results.
   - optional `https://*/*` — only requested if a user points the extension at a self-hosted
@@ -83,3 +90,8 @@ Requires a free account at https://tag.bainslamusic.com — paste your API key o
 2. Report panel open showing tags with ranks.
 3. Report panel scrolled to the channel section.
 4. Dashboard Settings with "Connect my channel with Google".
+
+## Sign-in flow (v1.2.0)
+
+Install → a dashboard tab opens at `/connect` → sign in (or sign up) → the page hands the
+extension the account automatically → the popup shows the email and plan. Nothing to paste.

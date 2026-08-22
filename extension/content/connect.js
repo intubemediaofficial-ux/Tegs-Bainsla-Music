@@ -5,8 +5,12 @@
   const manifest = chrome.runtime.getManifest();
   document.documentElement.setAttribute("data-bmt-extension", manifest.version);
 
+  // The page lives in another JS world, so hand it a plain string it can parse
+  // rather than an object owned by this context.
   function done(detail) {
-    window.dispatchEvent(new CustomEvent("bmt:connect-done", { detail }));
+    window.dispatchEvent(
+      new CustomEvent("bmt:connect-done", { detail: JSON.stringify(detail) })
+    );
   }
 
   async function connect() {
@@ -33,7 +37,7 @@
       });
       if (stored?.error) done({ error: stored.error });
       else done({ email: data.email, planLabel: data.planLabel });
-    } catch (e) {
+    } catch {
       done({ error: "Could not reach the dashboard. Reload and try again." });
     }
   }
