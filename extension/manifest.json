@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bainsla Music Tags — YouTube Tag, Title & Trend Studio",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Ranked tags, real ranking titles, hashtags and live 60-min/48-hour view pulse for the YouTube video you are watching.",
   "action": {
     "default_title": "Bainsla Music Tags",
@@ -17,6 +17,11 @@
   "host_permissions": ["*://*.youtube.com/*", "https://tag.bainslamusic.com/*"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*"],
   "content_scripts": [
+    {
+      "matches": ["https://tag.bainslamusic.com/*", "http://localhost/*"],
+      "js": ["content/connect.js"],
+      "run_at": "document_end"
+    },
     {
       "matches": ["*://studio.youtube.com/*"],
       "js": ["content/shared.js", "content/studio.js"],

@@ -9,12 +9,29 @@
       <strong>Bainsla<span>Tags</span></strong>
       <a id="options" href="#">Settings</a>
     </div>
-    <div class="row">
-      <input id="q" placeholder="Any singer / song / keyword" />
-      <button id="go">Go</button>
+
+    <div id="signedOut" class="auth" hidden>
+      <p class="lead">Sign in to see ranked tags, titles and the live view pulse on YouTube.</p>
+      <button id="signIn" class="wide">Sign in / Sign up</button>
+      <p class="fine">Opens the dashboard — after login the extension connects itself.</p>
     </div>
-    <div id="status" class="status"></div>
-    <div id="out"></div>
+
+    <div id="signedIn" hidden>
+      <div class="account">
+        <div>
+          <div id="email" class="email"></div>
+          <div id="plan" class="fine"></div>
+        </div>
+        <button id="signOut" class="link">Sign out</button>
+      </div>
+      <div class="row">
+        <input id="q" placeholder="Any singer / song / keyword" />
+        <button id="go">Go</button>
+      </div>
+      <div id="status" class="status"></div>
+      <div id="out"></div>
+    </div>
+
     <script src="popup.js"></script>
   </body>
 </html>

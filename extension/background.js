@@ -1,15 +1,57 @@
 // Central fetch proxy so content scripts / popup share one code path and the
 // API key never leaks into page context.
-const DEFAULTS = { apiBase: "https://tag.bainslamusic.com", apiKey: "" };
+const DEFAULTS = {
+  apiBase: "https://tag.bainslamusic.com",
+  apiKey: "",
+  email: "",
+  plan: "",
+  planLabel: "",
+};
+
+const SIGN_IN_HINT = "Sign in from the extension icon to start.";
 
 async function getConfig() {
   const cfg = await chrome.storage.sync.get(DEFAULTS);
   return { ...DEFAULTS, ...cfg };
 }
 
+function connectUrl(apiBase) {
+  return `${(apiBase || DEFAULTS.apiBase).replace(/\/+$/, "")}/connect`;
+}
+
+/** Opens the dashboard page that hands the extension its key. */
+async function openConnect() {
+  const { apiBase } = await getConfig();
+  await chrome.tabs.create({ url: connectUrl(apiBase) });
+  return { ok: true };
+}
+
+async function saveAccount(account) {
+  if (!account?.apiKey) return { error: "No key received from the dashboard." };
+  await chrome.storage.sync.set({
+    apiBase: account.apiBase || DEFAULTS.apiBase,
+    apiKey: account.apiKey,
+    email: account.email || "",
+    plan: account.plan || "",
+    planLabel: account.planLabel || "",
+  });
+  return { ok: true };
+}
+
+async function signOut() {
+  await chrome.storage.sync.set({ apiKey: "", email: "", plan: "", planLabel: "" });
+  return { ok: true };
+}
+
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason !== "install") return;
+  const { apiKey, apiBase } = await getConfig();
+  if (!apiKey) await chrome.tabs.create({ url: connectUrl(apiBase) });
+});
+
 async function generate(query, hl, gl) {
   const { apiBase, apiKey } = await getConfig();
-  if (!apiKey) return { error: "No API key set. Open the extension options and paste your key." };
+  if (!apiKey) return { error: SIGN_IN_HINT, needsAuth: true };
   const base = apiBase.replace(/\/+$/, "");
   try {
     const res = await fetch(`${base}/api/ext/generate`, {
@@ -18,26 +60,32 @@ async function generate(query, hl, gl) {
       body: JSON.stringify({ query, hl: hl || "en", gl: gl || "IN" }),
     });
     const data = await res.json();
-    if (!res.ok) return { error: data.error || `Request failed (${res.status})` };
+    if (!res.ok) {
+      if (res.status === 401) return { error: SIGN_IN_HINT, needsAuth: true };
+      return { error: data.error || `Request failed (${res.status})` };
+    }
     return { data };
   } catch (e) {
-    return { error: `Cannot reach ${base}. Check the dashboard URL in options.` };
+    return { error: `Cannot reach ${base}. Check your connection.` };
   }
 }
 
 async function pulse(videoId) {
   const { apiBase, apiKey } = await getConfig();
-  if (!apiKey) return { error: "No API key set. Open the extension options and paste your key." };
+  if (!apiKey) return { error: SIGN_IN_HINT, needsAuth: true };
   const base = apiBase.replace(/\/+$/, "");
   try {
     const res = await fetch(`${base}/api/ext/pulse?video=${encodeURIComponent(videoId)}`, {
       headers: { "x-api-key": apiKey },
     });
     const data = await res.json();
-    if (!res.ok) return { error: data.error || `Request failed (${res.status})` };
+    if (!res.ok) {
+      if (res.status === 401) return { error: SIGN_IN_HINT, needsAuth: true };
+      return { error: data.error || `Request failed (${res.status})` };
+    }
     return { data };
   } catch (e) {
-    return { error: `Cannot reach ${base}. Check the dashboard URL in options.` };
+    return { error: `Cannot reach ${base}. Check your connection.` };
   }
 }
 
@@ -52,6 +100,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "getConfig") {
     getConfig().then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "link") {
+    saveAccount(msg.account).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "openConnect") {
+    openConnect().then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "signOut") {
+    signOut().then(sendResponse);
     return true;
   }
 });

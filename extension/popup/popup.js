@@ -10,6 +10,30 @@ $("q").addEventListener("keydown", (e) => {
   if (e.key === "Enter") run();
 });
 
+$("signIn").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "openConnect" });
+  window.close();
+});
+
+$("signOut").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "signOut" });
+  showAccount();
+});
+
+async function showAccount() {
+  const cfg = await chrome.runtime.sendMessage({ type: "getConfig" });
+  const signedIn = Boolean(cfg?.apiKey);
+  $("signedIn").hidden = !signedIn;
+  $("signedOut").hidden = signedIn;
+  if (signedIn) {
+    $("email").textContent = cfg.email || "Connected";
+    $("plan").textContent = cfg.planLabel ? `${cfg.planLabel} plan` : "";
+  }
+}
+
+chrome.storage.onChanged.addListener(showAccount);
+showAccount();
+
 function el(tag, cls, text) {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -39,6 +63,7 @@ async function run() {
 
   if (resp?.error) {
     $("status").textContent = resp.error;
+    if (resp.needsAuth) showAccount();
     return;
   }
   $("status").textContent = "";
