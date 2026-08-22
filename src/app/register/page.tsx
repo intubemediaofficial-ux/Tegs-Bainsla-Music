@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { AuthForm } from "@/components/AuthForm";
 
-export default function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
   return (
     <div className="flex min-h-screen items-center justify-center px-5">
       <div className="w-full max-w-sm">
@@ -11,11 +16,14 @@ export default function RegisterPage() {
         <div className="card bg-gradient-to-br from-accent-pink/15 via-ink-card/80 to-brand-600/20">
           <h1 className="mb-1 text-xl font-bold">Create your account</h1>
           <p className="mb-5 text-sm text-slate-400">Free forever plan included.</p>
-          <AuthForm mode="register" />
+          <AuthForm mode="register" next={next} />
         </div>
         <p className="mt-4 text-center text-sm text-slate-400">
           Already have an account?{" "}
-          <Link href="/login" className="text-brand-400 hover:underline">
+          <Link
+            href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+            className="text-brand-400 hover:underline"
+          >
             Sign in
           </Link>
         </p>

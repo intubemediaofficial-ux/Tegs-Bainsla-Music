@@ -3,7 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function AuthForm({ mode }: { mode: "login" | "register" }) {
+export function AuthForm({
+  mode,
+  next,
+}: {
+  mode: "login" | "register";
+  next?: string;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -25,7 +31,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
-      router.push(data.user?.role === "admin" ? "/admin" : "/app");
+      const fallback = data.user?.role === "admin" ? "/admin" : "/app";
+      router.push(next && next.startsWith("/") ? next : fallback);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");

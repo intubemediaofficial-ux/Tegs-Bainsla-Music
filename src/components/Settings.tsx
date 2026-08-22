@@ -8,13 +8,23 @@ import { isUnlimited } from "@/lib/plans";
 interface Me {
   user: { name: string; email: string; plan: string; apiKey: string };
   usage: { generations: number; research: number };
-  limits: { generations: number; research: number; artists: number; maxTags: number };
+  limits: {
+    generations: number;
+    research: number;
+    artists: number;
+    maxTags: number;
+  };
 }
 
 interface ChannelLink {
   configured: boolean;
   connected: boolean;
-  channel: { channelId: string; title: string; thumbnail: string; connectedAt: string } | null;
+  channel: {
+    channelId: string;
+    title: string;
+    thumbnail: string;
+    connectedAt: string;
+  } | null;
 }
 
 export function Settings() {
@@ -51,7 +61,8 @@ export function Settings() {
     try {
       const r = await fetch("/api/account/apikey", { method: "POST" });
       const j = await r.json();
-      if (me && j.apiKey) setMe({ ...me, user: { ...me.user, apiKey: j.apiKey } });
+      if (me && j.apiKey)
+        setMe({ ...me, user: { ...me.user, apiKey: j.apiKey } });
     } finally {
       setRegenerating(false);
     }
@@ -77,8 +88,16 @@ export function Settings() {
           Usage today
         </h2>
         <div className="grid grid-cols-2 gap-3">
-          <Meter label="Generations" used={me.usage.generations} limit={me.limits.generations} />
-          <Meter label="Research" used={me.usage.research} limit={me.limits.research} />
+          <Meter
+            label="Generations"
+            used={me.usage.generations}
+            limit={me.limits.generations}
+          />
+          <Meter
+            label="Research"
+            used={me.usage.research}
+            limit={me.limits.research}
+          />
         </div>
       </div>
 
@@ -87,15 +106,17 @@ export function Settings() {
           My YouTube channel
         </h2>
         <p className="mb-3 text-xs text-slate-500">
-          Connect your own channel to unlock official numbers for your videos — real traffic
-          sources (search vs suggested vs browse), the actual search terms bringing views, watch
-          time, average viewed % and subscribers gained. YouTube only shares these with the
-          channel owner, so other creators&apos; videos stay public-data estimates.
+          Connect your own channel to unlock official numbers for your videos —
+          real traffic sources (search vs suggested vs browse), the actual
+          search terms bringing views, watch time, average viewed % and
+          subscribers gained. YouTube only shares these with the channel owner,
+          so other creators&apos; videos stay public-data estimates.
         </p>
 
         {connectResult === "connected" && (
           <div className="mb-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2 text-xs font-bold text-emerald-200">
-            Channel connected{params.get("name") ? ` — ${params.get("name")}` : ""}.
+            Channel connected
+            {params.get("name") ? ` — ${params.get("name")}` : ""}.
           </div>
         )}
         {connectResult === "error" && (
@@ -115,8 +136,12 @@ export function Settings() {
               />
             )}
             <div className="flex-1">
-              <div className="text-sm font-black text-slate-100">{link.channel.title}</div>
-              <div className="text-xs text-slate-500">Connected — official analytics are on.</div>
+              <div className="text-sm font-black text-slate-100">
+                {link.channel.title}
+              </div>
+              <div className="text-xs text-slate-500">
+                Connected — official analytics are on.
+              </div>
             </div>
             <a href="/api/auth/google/start" className="btn-ghost">
               Switch channel
@@ -138,18 +163,38 @@ export function Settings() {
 
       <div className="card">
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Chrome extension API key
+          Chrome extension
         </h2>
         <p className="mb-3 text-xs text-slate-500">
-          Paste this into the Bainsla Tags extension options to connect it to your account.
+          Nothing to copy — open the connect page and the extension signs itself
+          in.
         </p>
-        <div className="flex gap-2">
-          <input readOnly className="input font-mono text-xs" value={me.user.apiKey} />
-          <CopyButton text={me.user.apiKey} label="Copy" />
-          <button onClick={regen} disabled={regenerating} className="btn-ghost">
-            {regenerating ? "…" : "Regenerate"}
-          </button>
-        </div>
+        <a className="btn-primary" href="/connect">
+          Connect the extension
+        </a>
+        <details className="mt-4">
+          <summary className="cursor-pointer text-xs text-slate-500">
+            Advanced — show API key
+          </summary>
+          <div className="mt-3 flex gap-2">
+            <input
+              readOnly
+              className="input font-mono text-xs"
+              value={me.user.apiKey}
+            />
+            <CopyButton text={me.user.apiKey} label="Copy" />
+            <button
+              onClick={regen}
+              disabled={regenerating}
+              className="btn-ghost"
+            >
+              {regenerating ? "…" : "Regenerate"}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Regenerating disconnects any extension already signed in.
+          </p>
+        </details>
       </div>
     </div>
   );
@@ -164,9 +209,19 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Meter({ label, used, limit }: { label: string; used: number; limit: number }) {
+function Meter({
+  label,
+  used,
+  limit,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+}) {
   const free = isUnlimited(limit);
-  const pct = free ? 0 : Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
+  const pct = free
+    ? 0
+    : Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
   return (
     <div className="rounded-lg border border-ink-line bg-ink-soft p-3">
       <div className="mb-1 flex justify-between text-xs text-slate-400">

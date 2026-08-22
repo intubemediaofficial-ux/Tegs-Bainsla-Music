@@ -420,6 +420,15 @@
     if (resp?.error) {
       const strip = buildStrip();
       strip.innerHTML = "";
+      if (resp.needsAuth) {
+        const link = el("span", "bmt-s-item", "Sign in to Bainsla Tags");
+        link.style.cursor = "pointer";
+        link.addEventListener("click", () =>
+          chrome.runtime.sendMessage({ type: "openConnect" })
+        );
+        strip.appendChild(link);
+        return;
+      }
       const warn = el("span", "bmt-s-item bmt-est", resp.error.slice(0, 40));
       strip.appendChild(warn);
       return;

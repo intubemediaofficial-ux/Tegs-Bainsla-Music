@@ -101,3 +101,49 @@ textarea {
   padding: 4px 8px;
   margin-top: 4px;
 }
+.auth {
+  text-align: center;
+  padding: 6px 4px 2px;
+}
+.lead {
+  font-size: 13px;
+  color: #cbd5e1;
+  margin: 6px 0 12px;
+  line-height: 1.45;
+}
+.fine {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 8px 0 0;
+}
+button.wide {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(90deg, #7c3aed, #ec4899);
+}
+.account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid #2a2a3a;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(6, 182, 212, 0.12));
+}
+.email {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1f5f9;
+  overflow-wrap: anywhere;
+}
+.account .fine {
+  margin: 2px 0 0;
+}
+button.link {
+  background: none;
+  color: #a78bfa;
+  font-size: 11px;
+  padding: 4px 0;
+}
