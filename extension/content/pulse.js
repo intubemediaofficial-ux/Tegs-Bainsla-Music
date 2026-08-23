@@ -6,6 +6,7 @@
   let currentId = "";
   let timer = null;
   let latest = null;
+  let dismissedId = "";
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -177,6 +178,34 @@
     return panel;
   }
 
+  function renderSignIn() {
+    const panel = buildPanel();
+    panel.innerHTML = "";
+    const head = el("div", "bmt-p-head");
+    head.appendChild(el("strong", null, "Bainsla Tags"));
+    const close = el("button", "bmt-x", "✕");
+    close.addEventListener("click", () => {
+      dismissedId = currentId;
+      panel.classList.remove("open");
+    });
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    const box = el("div");
+    box.appendChild(
+      el(
+        "div",
+        "bmt-note",
+        "Sign in once and every video you open shows its tags, hashtags, title score and the 60-minute / 48-hour view pulse right here."
+      )
+    );
+    const btn = el("button", "bmt-dl", "Sign in / Sign up");
+    btn.addEventListener("click", () => chrome.runtime.sendMessage({ type: "openConnect" }));
+    box.appendChild(btn);
+    panel.appendChild(section("Welcome", box));
+    if (currentId !== dismissedId) panel.classList.add("open");
+  }
+
   function renderPanel(data) {
     const panel = buildPanel();
     const wasOpen = panel.classList.contains("open");
@@ -186,7 +215,10 @@
     const head = el("div", "bmt-p-head");
     head.appendChild(el("strong", null, "Bainsla Tags — this video"));
     const close = el("button", "bmt-x", "✕");
-    close.addEventListener("click", () => panel.classList.remove("open"));
+    close.addEventListener("click", () => {
+      dismissedId = currentId;
+      panel.classList.remove("open");
+    });
     head.appendChild(close);
     panel.appendChild(head);
 
@@ -427,6 +459,7 @@
           chrome.runtime.sendMessage({ type: "openConnect" })
         );
         strip.appendChild(link);
+        renderSignIn();
         return;
       }
       const warn = el("span", "bmt-s-item bmt-est", resp.error.slice(0, 40));
@@ -436,12 +469,18 @@
     latest = resp.data;
     renderStrip(latest);
     renderPanel(latest);
+    // vidIQ-style: the report is open by default on every video the user opens,
+    // until they close it for that video.
+    if (currentId !== dismissedId) {
+      document.getElementById("bmt-pulse-panel")?.classList.add("open");
+    }
   }
 
   function start() {
     const id = videoIdFromUrl();
     if (!id || id === currentId) return;
     currentId = id;
+    dismissedId = "";
     renderStrip(null);
     load();
     if (timer) clearInterval(timer);

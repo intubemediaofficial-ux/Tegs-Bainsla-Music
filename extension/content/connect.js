@@ -43,4 +43,10 @@
   }
 
   window.addEventListener("bmt:connect-request", connect);
+
+  // Any dashboard page is enough: if we still have no key and this browser is
+  // signed in, link the account silently so the user never clicks anything.
+  chrome.runtime.sendMessage({ type: "getConfig" }, (cfg) => {
+    if (!cfg?.apiKey) connect();
+  });
 })();
