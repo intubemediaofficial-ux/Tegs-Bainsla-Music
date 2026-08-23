@@ -215,6 +215,17 @@ html[dark] #bmt-strip .bmt-s-item,
   font-size: 14px;
   margin-bottom: 6px;
 }
+#bmt-pulse-panel .bmt-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#bmt-pulse-panel .bmt-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: block;
+}
 #bmt-pulse-panel .bmt-x {
   background: none;
   border: 0;

@@ -17,6 +17,14 @@ body {
 }
 .head strong {
   font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.head .logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
 }
 .head span {
   color: #a78bfa;
