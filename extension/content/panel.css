@@ -308,6 +308,14 @@ html[dark] #bmt-strip .bmt-s-item,
   color: #c4b5fd;
   text-decoration: none;
 }
+#bmt-pulse-panel button.bmt-dl {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #7c3aed, #db2777);
+  color: #fff;
+  cursor: pointer;
+}
 #bmt-pulse-panel .bmt-list {
   display: flex;
   flex-direction: column;
