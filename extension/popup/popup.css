@@ -147,3 +147,13 @@ button.link {
   font-size: 11px;
   padding: 4px 0;
 }
+
+details {
+  margin-top: 10px;
+}
+details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #a78bfa;
+  margin-bottom: 8px;
+}

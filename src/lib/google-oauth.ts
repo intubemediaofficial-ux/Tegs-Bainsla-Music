@@ -20,6 +20,15 @@ export const YT_SCOPES = [
   "https://www.googleapis.com/auth/youtube.readonly",
 ];
 
+/** Sign-in only: who the person is, no YouTube access. */
+export const LOGIN_SCOPES = ["openid", "email", "profile"];
+
+export interface GoogleIdentity {
+  email: string;
+  name: string;
+  picture: string;
+}
+
 export interface ChannelConnection {
   userId: string;
   channelId: string;
@@ -75,6 +84,61 @@ export async function consumeState(state: string): Promise<string | null> {
   // States are single-use and short lived.
   if (Date.now() - row.at > 15 * 60 * 1000) return null;
   return row.userId;
+}
+
+/* ---------------------------- sign in with Google ------------------------- */
+
+const loginStateKey = (state: string) => `ytlogin:${state}`;
+
+function loginRedirectUri(): string {
+  return `${settingsSync().appUrl}/api/auth/google/login/callback`;
+}
+
+/** Consent URL for "Sign in with Google", remembering where to land after. */
+export async function startGoogleLogin(next: string): Promise<string> {
+  const { clientId } = credentials();
+  const state = crypto.randomUUID();
+  await store.set(loginStateKey(state), { next, at: Date.now() });
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: loginRedirectUri(),
+    response_type: "code",
+    scope: LOGIN_SCOPES.join(" "),
+    prompt: "select_account",
+    state,
+  });
+  return `${AUTH_URL}?${params.toString()}`;
+}
+
+export async function consumeLoginState(state: string): Promise<string | null> {
+  const row = await store.get<{ next: string; at: number }>(loginStateKey(state));
+  if (!row) return null;
+  await store.del(loginStateKey(state));
+  if (Date.now() - row.at > 15 * 60 * 1000) return null;
+  return row.next || "/connect";
+}
+
+/** Exchange the sign-in code for the person's Google email and name. */
+export async function completeGoogleLogin(code: string): Promise<GoogleIdentity> {
+  const { clientId, clientSecret } = credentials();
+  const token = await tokenRequest({
+    code,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: loginRedirectUri(),
+    grant_type: "authorization_code",
+  });
+  if (!token.access_token) throw new Error("Google did not return an access token");
+
+  const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${token.access_token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Could not read your Google profile");
+  const data = (await res.json()) as { email?: string; name?: string; picture?: string };
+  if (!data.email) throw new Error("This Google account has no email address");
+  return { email: data.email, name: data.name ?? "", picture: data.picture ?? "" };
 }
 
 interface TokenResponse {
