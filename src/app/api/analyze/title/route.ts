@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { scoreTitle } from "@/lib/scoring";
-import { requireUser, isResponse, json, error } from "@/lib/api";
+import { requireUser, isResponse, json, error, requireFeature } from "@/lib/api";
 
 export const runtime = "nodejs";
 
@@ -13,6 +13,8 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const user = await requireUser(req);
   if (isResponse(user)) return user;
+  const denied = requireFeature(user, "generate");
+  if (denied) return denied;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

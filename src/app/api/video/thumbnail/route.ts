@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireUser, isResponse, error } from "@/lib/api";
+import { requireUser, isResponse, error, requireFeature } from "@/lib/api";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,8 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const user = await requireUser(req);
   if (isResponse(user)) return user;
+  const denied = requireFeature(user, "research");
+  if (denied) return denied;
 
   const raw = req.nextUrl.searchParams.get("video") ?? "";
   const idMatch = raw.match(/(?:v=|youtu\.be\/|shorts\/)?([A-Za-z0-9_-]{11})(?:$|&|\?)/);
