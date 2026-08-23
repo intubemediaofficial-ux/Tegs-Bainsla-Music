@@ -4,12 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "./LogoutButton";
+import type { FeatureId } from "@/lib/access";
 
 interface NavItem {
   href: string;
   label: string;
   icon: string;
   hint: string;
+  feature?: FeatureId;
 }
 
 interface NavGroup {
@@ -21,18 +23,60 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     group: "Create",
     items: [
-      { href: "/app", label: "Full Package", icon: "🎯", hint: "Tags + titles + playlists" },
-      { href: "/app/tags", label: "Tag Generator", icon: "🏷️", hint: "500-char tag box" },
-      { href: "/app/titles", label: "Title Analyzer", icon: "✍️", hint: "Score + build titles" },
+      {
+        href: "/app",
+        label: "Full Package",
+        icon: "🎯",
+        hint: "Tags + titles + playlists",
+        feature: "generate",
+      },
+      {
+        href: "/app/tags",
+        label: "Tag Generator",
+        icon: "🏷️",
+        hint: "500-char tag box",
+        feature: "generate",
+      },
+      {
+        href: "/app/titles",
+        label: "Title Analyzer",
+        icon: "✍️",
+        hint: "Score + build titles",
+        feature: "generate",
+      },
     ],
   },
   {
     group: "Research",
     items: [
-      { href: "/app/research", label: "Keyword Research", icon: "🔍", hint: "Ranked keywords" },
-      { href: "/app/channel", label: "Channel Tags", icon: "📺", hint: "Any channel's tags" },
-      { href: "/app/tags-viewer", label: "Competitor Tags", icon: "🕵️", hint: "Tags of any video" },
-      { href: "/app/rank", label: "Rank Checker", icon: "📊", hint: "Where you rank" },
+      {
+        href: "/app/research",
+        label: "Keyword Research",
+        icon: "🔍",
+        hint: "Ranked keywords",
+        feature: "research",
+      },
+      {
+        href: "/app/channel",
+        label: "Channel Tags",
+        icon: "📺",
+        hint: "Any channel's tags",
+        feature: "research",
+      },
+      {
+        href: "/app/tags-viewer",
+        label: "Competitor Tags",
+        icon: "🕵️",
+        hint: "Tags of any video",
+        feature: "research",
+      },
+      {
+        href: "/app/rank",
+        label: "Rank Checker",
+        icon: "📊",
+        hint: "Where you rank",
+        feature: "research",
+      },
     ],
   },
   {
@@ -43,6 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Trending / Viral",
         icon: "🔥",
         hint: "What's hot right now",
+        feature: "trending",
       },
     ],
   },
@@ -63,18 +108,28 @@ function itemClasses(active: boolean) {
   }`;
 }
 
+/** Hide what an admin switched off so nobody clicks into a 403. */
+function visibleGroups(disabled: FeatureId[]): NavGroup[] {
+  return NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((n) => !n.feature || !disabled.includes(n.feature)),
+  })).filter((g) => g.items.length > 0);
+}
+
 function NavList({
   pathname,
   onNavigate,
   isAdmin,
+  disabled,
 }: {
   pathname: string;
   onNavigate?: () => void;
   isAdmin: boolean;
+  disabled: FeatureId[];
 }) {
   return (
     <nav className="space-y-5">
-      {NAV_GROUPS.map((g) => (
+      {visibleGroups(disabled).map((g) => (
         <div key={g.group}>
           <div className="mb-1.5 px-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
             {g.group}
@@ -122,10 +177,12 @@ export function AppSidebar({
   name,
   planName,
   isAdmin,
+  disabled = [],
 }: {
   name: string;
   planName: string;
   isAdmin: boolean;
+  disabled?: FeatureId[];
 }) {
   const pathname = usePathname();
   return (
@@ -134,7 +191,7 @@ export function AppSidebar({
         Bainsla<span className="grad-text">Tags</span>
       </Link>
       <div className="flex-1 overflow-y-auto">
-        <NavList pathname={pathname} isAdmin={isAdmin} />
+        <NavList pathname={pathname} isAdmin={isAdmin} disabled={disabled} />
       </div>
       <div className="mt-4 rounded-xl border border-brand-500/30 bg-gradient-to-br from-brand-600/25 to-accent-cyan/10 p-3 text-xs">
         <div className="text-sm font-bold text-slate-100">{name}</div>
@@ -146,7 +203,15 @@ export function AppSidebar({
 }
 
 /** Mobile top bar + slide-in menu (the sidebar is hidden under md). */
-export function AppMobileNav({ name, isAdmin }: { name: string; isAdmin: boolean }) {
+export function AppMobileNav({
+  name,
+  isAdmin,
+  disabled = [],
+}: {
+  name: string;
+  isAdmin: boolean;
+  disabled?: FeatureId[];
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const current = NAV_GROUPS.flatMap((g) => g.items).find((n) => n.href === pathname);
@@ -191,7 +256,12 @@ export function AppMobileNav({ name, isAdmin }: { name: string; isAdmin: boolean
                 ×
               </button>
             </div>
-            <NavList pathname={pathname} isAdmin={isAdmin} onNavigate={() => setOpen(false)} />
+            <NavList
+              pathname={pathname}
+              isAdmin={isAdmin}
+              disabled={disabled}
+              onNavigate={() => setOpen(false)}
+            />
             <div className="mt-6">
               <LogoutButton />
             </div>

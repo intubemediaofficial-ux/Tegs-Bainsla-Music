@@ -6,7 +6,7 @@ import {
   seedFromTitle,
   DEFAULT_YT_TAGS,
 } from "@/lib/youtube";
-import { requireUser, isResponse, json, error } from "@/lib/api";
+import { requireUser, isResponse, json, error, requireFeature } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,6 +19,8 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const user = await requireUser(req);
   if (isResponse(user)) return user;
+  const denied = requireFeature(user, "research");
+  if (denied) return denied;
 
   const raw = req.nextUrl.searchParams.get("video") ?? "";
   const idMatch = raw.match(/(?:v=|youtu\.be\/|shorts\/)?([A-Za-z0-9_-]{11})(?:$|&|\?)/);

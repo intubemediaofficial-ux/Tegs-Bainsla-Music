@@ -1,6 +1,9 @@
+import { randomBytes } from "crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { createUser, listUsers, saveUser } from "@/lib/users";
+import { createInvite, inviteUrl } from "@/lib/invites";
+import { getSettings } from "@/lib/settings";
 import { toPublic } from "@/lib/auth";
 import { getUsage, effectiveLimits } from "@/lib/usage";
 import { requireAdmin, isResponse, json, error } from "@/lib/api";
@@ -19,7 +22,7 @@ export async function GET(req: NextRequest) {
         ...toPublic(u),
         usage: await getUsage(u.id),
         limits: effectiveLimits(u),
-      }))
+      })),
   );
   return json({ users: rows });
 }
@@ -27,7 +30,8 @@ export async function GET(req: NextRequest) {
 const createSchema = z.object({
   email: z.string().email(),
   name: z.string().max(80).optional(),
-  password: z.string().min(6).max(200),
+  /** Omit to hand out a one-time invite link instead of a password. */
+  password: z.string().min(6).max(200).optional(),
   plan: z.enum(["free", "starter", "creator", "unlimited", "admin"]).optional(),
   role: z.enum(["user", "admin"]).optional(),
   unlimited: z.boolean().optional(),
@@ -40,13 +44,17 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
-  if (!parsed.success) return error("Email and a password of 6+ characters are required");
+  if (!parsed.success)
+    return error("A valid email is required (password must be 6+ characters)");
+
+  const invited = !parsed.data.password;
 
   try {
     const user = await createUser({
       email: parsed.data.email,
       name: parsed.data.name ?? "",
-      password: parsed.data.password,
+      // Invited accounts get an unusable random password until the link is used.
+      password: parsed.data.password ?? randomBytes(24).toString("hex"),
       plan: parsed.data.plan ?? "free",
       role: parsed.data.role ?? "user",
     });
@@ -54,8 +62,18 @@ export async function POST(req: NextRequest) {
       user.unlimited = true;
       await saveUser(user);
     }
-    return json({ user: toPublic(user) });
+    if (!invited) return json({ user: toPublic(user) });
+
+    const invite = await createInvite(user);
+    const settings = await getSettings();
+    return json({
+      user: toPublic(user),
+      inviteUrl: inviteUrl(invite.token, settings.appUrl),
+    });
   } catch (e) {
-    return error(e instanceof Error ? e.message : "Could not create the user", 409);
+    return error(
+      e instanceof Error ? e.message : "Could not create the user",
+      409,
+    );
   }
 }

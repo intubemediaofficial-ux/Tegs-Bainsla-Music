@@ -20,7 +20,12 @@ interface AdminUser {
   access?: Partial<Record<FeatureId, boolean>>;
   limitOverrides?: { generations?: number; research?: number };
   usage: { generations: number; research: number };
-  limits: { generations: number; research: number; artists: number; maxTags: number };
+  limits: {
+    generations: number;
+    research: number;
+    artists: number;
+    maxTags: number;
+  };
 }
 
 export function AdminUsers() {
@@ -28,6 +33,9 @@ export function AdminUsers() {
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [invite, setInvite] = useState<{ email: string; url: string } | null>(
+    null,
+  );
   const flash = useFlash();
 
   async function load() {
@@ -40,7 +48,11 @@ export function AdminUsers() {
     load();
   }, []);
 
-  async function patch(id: string, body: Record<string, unknown>, okText = "Saved") {
+  async function patch(
+    id: string,
+    body: Record<string, unknown>,
+    okText = "Saved",
+  ) {
     setBusy(true);
     const { ok, data } = await apiSend(`/api/admin/users/${id}`, "PATCH", body);
     flash.show(ok, ok ? okText : errText(data));
@@ -48,22 +60,36 @@ export function AdminUsers() {
     setBusy(false);
   }
 
-  async function setLimit(u: AdminUser, kind: "generations" | "research", raw: string) {
+  async function setLimit(
+    u: AdminUser,
+    kind: "generations" | "research",
+    raw: string,
+  ) {
     const trimmed = raw.trim();
     const value = trimmed === "" ? null : Number(trimmed);
     if (value !== null && (!Number.isFinite(value) || value < 0)) return;
     await patch(
       u.id,
       { limitOverrides: { [kind]: value } },
-      value === null ? "Back to the plan default" : `Daily ${kind} set to ${value}`
+      value === null
+        ? "Back to the plan default"
+        : `Daily ${kind} set to ${value}`,
     );
   }
 
   async function bulkUnlimited(unlimited: boolean) {
-    if (!confirm(unlimited ? "Give unlimited daily usage to every user?" : "Put every user back on their plan limits?"))
+    if (
+      !confirm(
+        unlimited
+          ? "Give unlimited daily usage to every user?"
+          : "Put every user back on their plan limits?",
+      )
+    )
       return;
     setBusy(true);
-    const { ok, data } = await apiSend("/api/admin/users/bulk", "POST", { unlimited });
+    const { ok, data } = await apiSend("/api/admin/users/bulk", "POST", {
+      unlimited,
+    });
     flash.show(ok, ok ? `Updated ${data.updated ?? 0} users` : errText(data));
     await load();
     setBusy(false);
@@ -85,7 +111,7 @@ export function AdminUsers() {
       (u) =>
         u.email.toLowerCase().includes(needle) ||
         u.name.toLowerCase().includes(needle) ||
-        u.plan.includes(needle)
+        u.plan.includes(needle),
     );
   }, [users, q]);
 
@@ -102,22 +128,35 @@ export function AdminUsers() {
       </header>
 
       <NewUserForm
-        onCreated={async (msg) => {
+        onCreated={async (msg, link) => {
           flash.show(true, msg);
+          if (link) setInvite(link);
           await load();
         }}
         onError={(msg) => flash.show(false, msg)}
       />
+
+      {invite && (
+        <InviteBanner invite={invite} onClose={() => setInvite(null)} />
+      )}
 
       <Section
         title={`Users (${users.length})`}
         hint="Plan sets the default daily limits. “Unlimited ∞” ignores every daily cap. Typing a number in gen/res overrides the plan for that user only — clear the box to go back to the plan. Open “access” to switch individual features off."
         action={
           <div className="flex gap-2">
-            <button onClick={() => bulkUnlimited(true)} disabled={busy} className="btn-ghost">
+            <button
+              onClick={() => bulkUnlimited(true)}
+              disabled={busy}
+              className="btn-ghost"
+            >
               Unlimited for everyone
             </button>
-            <button onClick={() => bulkUnlimited(false)} disabled={busy} className="btn-ghost">
+            <button
+              onClick={() => bulkUnlimited(false)}
+              disabled={busy}
+              className="btn-ghost"
+            >
               Reset to plan limits
             </button>
           </div>
@@ -155,7 +194,11 @@ export function AdminUsers() {
                         className="input w-32 py-1"
                         value={u.plan}
                         onChange={(e) =>
-                          patch(u.id, { plan: e.target.value }, `Plan set to ${e.target.value}`)
+                          patch(
+                            u.id,
+                            { plan: e.target.value },
+                            `Plan set to ${e.target.value}`,
+                          )
                         }
                       >
                         {PLAN_OPTS.map((p) => (
@@ -169,7 +212,11 @@ export function AdminUsers() {
                       <button
                         className="chip"
                         onClick={() =>
-                          patch(u.id, { role: u.role === "admin" ? "user" : "admin" }, "Role changed")
+                          patch(
+                            u.id,
+                            { role: u.role === "admin" ? "user" : "admin" },
+                            "Role changed",
+                          )
                         }
                         title="Admins can open this panel and bypass every limit"
                       >
@@ -181,7 +228,11 @@ export function AdminUsers() {
                         <button
                           className={`chip ${u.unlimited ? "text-green-300" : "text-slate-400"}`}
                           onClick={() =>
-                            patch(u.id, { unlimited: !u.unlimited }, "Daily cap switched")
+                            patch(
+                              u.id,
+                              { unlimited: !u.unlimited },
+                              "Daily cap switched",
+                            )
                           }
                           title="Never run out of daily generations / research"
                         >
@@ -205,15 +256,24 @@ export function AdminUsers() {
                     </td>
                     <td className="whitespace-nowrap text-xs text-slate-400">
                       {u.usage.generations}
-                      {isUnlimited(u.limits.generations) ? "" : `/${u.limits.generations}`}g /{" "}
-                      {u.usage.research}
-                      {isUnlimited(u.limits.research) ? "" : `/${u.limits.research}`}r
+                      {isUnlimited(u.limits.generations)
+                        ? ""
+                        : `/${u.limits.generations}`}
+                      g / {u.usage.research}
+                      {isUnlimited(u.limits.research)
+                        ? ""
+                        : `/${u.limits.research}`}
+                      r
                     </td>
                     <td>
                       <button
                         className={`chip ${u.banned ? "text-red-300" : "text-green-300"}`}
                         onClick={() =>
-                          patch(u.id, { banned: !u.banned }, u.banned ? "Unbanned" : "Banned")
+                          patch(
+                            u.id,
+                            { banned: !u.banned },
+                            u.banned ? "Unbanned" : "Banned",
+                          )
                         }
                         title="Banned users cannot log in or use the extension"
                       >
@@ -237,6 +297,26 @@ export function AdminUsers() {
                           busy={busy}
                           onPatch={patch}
                           onDelete={() => deleteUser(u)}
+                          onInvite={async () => {
+                            setBusy(true);
+                            const { ok, data } = await apiSend(
+                              `/api/admin/users/${u.id}/invite`,
+                              "POST",
+                            );
+                            if (ok && typeof data.inviteUrl === "string") {
+                              setInvite({
+                                email: u.email,
+                                url: data.inviteUrl,
+                              });
+                              flash.show(true, "Login link created");
+                            } else {
+                              flash.show(
+                                false,
+                                errText(data, "Could not create the link"),
+                              );
+                            }
+                            setBusy(false);
+                          }}
                         />
                       </td>
                     </tr>
@@ -251,16 +331,70 @@ export function AdminUsers() {
   );
 }
 
+function InviteBanner({
+  invite,
+  onClose,
+}: {
+  invite: { email: string; url: string };
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <Section
+      title="Send this link"
+      hint={`Anything you send it to can sign in as ${invite.email}: they open the link, pick their own password and land straight on the extension connect page. The link works once and expires in 14 days.`}
+      action={
+        <button className="btn-ghost" onClick={onClose}>
+          Done
+        </button>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="flex-1 break-all rounded bg-black/40 px-2 py-2 text-xs text-slate-300">
+          {invite.url}
+        </code>
+        <button
+          className="btn-primary"
+          onClick={async () => {
+            await navigator.clipboard.writeText(invite.url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2500);
+          }}
+        >
+          {copied ? "Copied" : "Copy link"}
+        </button>
+        <a
+          className="btn-ghost"
+          href={`mailto:${invite.email}?subject=${encodeURIComponent(
+            "Your Bainsla Music Tags access",
+          )}&body=${encodeURIComponent(
+            `Open this link to set your password and start using Bainsla Music Tags:\n\n${invite.url}\n`,
+          )}`}
+        >
+          Open email
+        </a>
+      </div>
+    </Section>
+  );
+}
+
 function UserDetail({
   user,
   busy,
   onPatch,
   onDelete,
+  onInvite,
 }: {
   user: AdminUser;
   busy: boolean;
-  onPatch: (id: string, body: Record<string, unknown>, okText?: string) => Promise<void>;
+  onPatch: (
+    id: string,
+    body: Record<string, unknown>,
+    okText?: string,
+  ) => Promise<void>;
   onDelete: () => void;
+  onInvite: () => Promise<void>;
 }) {
   const [password, setPassword] = useState("");
 
@@ -271,8 +405,8 @@ function UserDetail({
           Feature access
         </h3>
         <p className="mb-3 text-xs text-slate-500">
-          Switch a feature off and the matching API returns “disabled for your account” (403) for
-          this user. Admins always keep everything.
+          Switch a feature off and the matching API returns “disabled for your
+          account” (403) for this user. Admins always keep everything.
         </p>
         <div className="space-y-2">
           {FEATURES.map((f) => {
@@ -288,7 +422,7 @@ function UserDetail({
                     onPatch(
                       user.id,
                       { access: { [f.id]: enabled ? false : null } },
-                      `${f.label} ${enabled ? "disabled" : "enabled"}`
+                      `${f.label} ${enabled ? "disabled" : "enabled"}`,
                     )
                   }
                 />
@@ -315,15 +449,34 @@ function UserDetail({
               className="btn-ghost"
               disabled={busy}
               onClick={() =>
-                confirm("Regenerate the API key? The old key stops working immediately.") &&
-                onPatch(user.id, { regenerateApiKey: true }, "New API key generated")
+                confirm(
+                  "Regenerate the API key? The old key stops working immediately.",
+                ) &&
+                onPatch(
+                  user.id,
+                  { regenerateApiKey: true },
+                  "New API key generated",
+                )
               }
             >
               Regenerate
             </button>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            The user pastes this in the Chrome extension options.
+            The extension picks this up itself when the user signs in — nothing
+            to paste. Regenerating signs their extension out.
+          </p>
+        </div>
+
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Login link
+          </h3>
+          <button className="btn-ghost" disabled={busy} onClick={onInvite}>
+            Create login link
+          </button>
+          <p className="mt-1 text-xs text-slate-500">
+            Use this instead of telling them a password — they set their own.
           </p>
         </div>
 
@@ -353,7 +506,10 @@ function UserDetail({
           {user.limits.artists} · max tags {user.limits.maxTags}
         </div>
 
-        <button onClick={onDelete} className="text-xs text-red-400 hover:underline">
+        <button
+          onClick={onDelete}
+          className="text-xs text-red-400 hover:underline"
+        >
           Delete this user
         </button>
       </div>
@@ -365,7 +521,10 @@ function NewUserForm({
   onCreated,
   onError,
 }: {
-  onCreated: (msg: string) => Promise<void>;
+  onCreated: (
+    msg: string,
+    invite?: { email: string; url: string },
+  ) => Promise<void>;
   onError: (msg: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -387,7 +546,7 @@ function NewUserForm({
   return (
     <Section
       title="Add a user"
-      hint="Creates the account right away and gives them an extension API key. Share the email + password with them; they can change the password later."
+      hint="Leave the password empty and you get a one-time login link to send them — they pick their own password. Type a password instead if you want to hand over the credentials yourself."
       action={
         <button className="btn-ghost" onClick={() => setOpen(false)}>
           Cancel
@@ -402,15 +561,19 @@ function NewUserForm({
           const { ok, data } = await apiSend("/api/admin/users", "POST", {
             email,
             name,
-            password,
+            password: password.trim() ? password : undefined,
             plan,
             unlimited,
           });
           if (ok) {
+            const link =
+              typeof data.inviteUrl === "string"
+                ? { email, url: data.inviteUrl }
+                : undefined;
             setEmail("");
             setName("");
             setPassword("");
-            await onCreated(`${email} created`);
+            await onCreated(`${email} created`, link);
           } else {
             onError(errText(data, "Could not create the user"));
           }
@@ -433,16 +596,16 @@ function NewUserForm({
         />
         <input
           className="input"
-          required
-          minLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password (6+)"
+          placeholder="Password (optional)"
         />
         <select
           className="input"
           value={plan}
-          onChange={(e) => setPlan(e.target.value as (typeof PLAN_OPTS)[number])}
+          onChange={(e) =>
+            setPlan(e.target.value as (typeof PLAN_OPTS)[number])
+          }
         >
           {PLAN_OPTS.map((p) => (
             <option key={p} value={p}>
