@@ -1,14 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Bainsla Music Tags — YouTube Tag, Title & Trend Studio",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Ranked tags, real ranking titles, hashtags and live 60-min/48-hour view pulse for the YouTube video you are watching.",
   "action": {
     "default_title": "Bainsla Music Tags",
     "default_popup": "popup/popup.html",
-    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    { "resources": ["icons/icon48.png"], "matches": ["*://*.youtube.com/*"] }
+  ],
   "background": {
     "service_worker": "background.js"
   },

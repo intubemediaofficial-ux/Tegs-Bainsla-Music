@@ -243,11 +243,21 @@
     return box;
   }
 
+  function brand() {
+    const wrap = el("span", "bmt-brand");
+    const logo = el("img", "bmt-logo");
+    logo.src = chrome.runtime.getURL("icons/icon48.png");
+    logo.alt = "";
+    wrap.appendChild(logo);
+    wrap.appendChild(el("strong", null, "Bainsla Tags"));
+    return wrap;
+  }
+
   function renderSignIn() {
     const panel = buildPanel();
     panel.innerHTML = "";
     const head = el("div", "bmt-p-head");
-    head.appendChild(el("strong", null, "Bainsla Tags"));
+    head.appendChild(brand());
     const close = el("button", "bmt-x", "✕");
     close.addEventListener("click", () => {
       dismissedId = currentId;
@@ -278,7 +288,7 @@
     if (wasOpen) panel.classList.add("open");
 
     const head = el("div", "bmt-p-head");
-    head.appendChild(el("strong", null, "Bainsla Tags"));
+    head.appendChild(brand());
     const close = el("button", "bmt-x", "✕");
     close.addEventListener("click", () => {
       dismissedId = currentId;
