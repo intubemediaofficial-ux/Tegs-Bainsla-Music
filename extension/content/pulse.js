@@ -7,6 +7,7 @@
   let timer = null;
   let latest = null;
   let dismissedId = "";
+  let activeTab = "views";
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -21,6 +22,29 @@
     if (v >= 100_000) return `${(v / 100_000).toFixed(1)}L`;
     if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
     return String(v);
+  }
+
+  /**
+   * The view count YouTube itself prints on the page. The API counter can lag
+   * minutes behind (and reads 0 on a brand-new upload), so whichever number is
+   * higher is the one the viewer should see.
+   */
+  function pageViews() {
+    const hosts = document.querySelectorAll(
+      "ytd-watch-metadata #info-container, ytd-watch-metadata #info, ytd-watch-info-text, #count .view-count"
+    );
+    for (const host of hosts) {
+      const m = (host.textContent || "").match(/([\d,.\u0966-\u096F]{1,20})\s*(?:views|व्यू)/i);
+      if (m) {
+        const n = Number(m[1].replace(/[,.]/g, ""));
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    return 0;
+  }
+
+  function viewsOf(video) {
+    return Math.max(Number(video.views) || 0, pageViews());
   }
 
   function videoIdFromUrl() {
@@ -67,7 +91,7 @@
         hint: p.tracking ? "views per hour, measured" : "views per hour — lifetime average so far",
         live: p.tracking,
       },
-      { icon: "📊", value: compact(data.video.views), hint: "total views", live: true },
+      { icon: "📊", value: compact(viewsOf(data.video)), hint: "total views", live: true },
     ];
     for (const it of items) {
       const box = el("span", `bmt-s-item${it.live ? "" : " bmt-est"}`);
@@ -169,13 +193,54 @@
     return wrap;
   }
 
+  /**
+   * Lives inside YouTube's own right-hand column (above the related videos) so
+   * it never covers the player. Falls back to a floating card when that column
+   * is missing (theater mode, Shorts, early page load).
+   */
   function buildPanel() {
+    const column =
+      document.querySelector("#secondary #secondary-inner") ||
+      document.querySelector("#secondary");
     let panel = document.getElementById("bmt-pulse-panel");
-    if (panel) return panel;
-    panel = el("div", null);
-    panel.id = "bmt-pulse-panel";
-    document.body.appendChild(panel);
+    if (!panel) {
+      panel = el("div", null);
+      panel.id = "bmt-pulse-panel";
+    }
+    const wanted = column || document.body;
+    if (panel.parentElement !== wanted) wanted.insertBefore(panel, wanted.firstChild);
+    panel.classList.toggle("bmt-inline", Boolean(column));
     return panel;
+  }
+
+  function tabBar(tabs, panel, render) {
+    const bar = el("div", "bmt-tabs");
+    for (const [id, label] of tabs) {
+      const b = el("button", `bmt-tab${activeTab === id ? " bmt-tab-on" : ""}`, label);
+      b.addEventListener("click", () => {
+        activeTab = id;
+        render();
+      });
+      bar.appendChild(b);
+    }
+    panel.appendChild(bar);
+  }
+
+  function thumbnailBox(video) {
+    const box = el("div", "bmt-thumb");
+    const img = el("img");
+    img.src = video.thumbnail;
+    box.appendChild(img);
+    const btn = el("button", "bmt-dl", "⬇ Download thumbnail");
+    btn.addEventListener("click", () =>
+      chrome.runtime.sendMessage({
+        type: "download",
+        url: video.thumbnail,
+        filename: `${(video.title || "thumbnail").replace(/[^\w\u0900-\u097F -]+/g, "").slice(0, 60)}.jpg`,
+      })
+    );
+    box.appendChild(btn);
+    return box;
   }
 
   function renderSignIn() {
@@ -213,7 +278,7 @@
     if (wasOpen) panel.classList.add("open");
 
     const head = el("div", "bmt-p-head");
-    head.appendChild(el("strong", null, "Bainsla Tags — this video"));
+    head.appendChild(el("strong", null, "Bainsla Tags"));
     const close = el("button", "bmt-x", "✕");
     close.addEventListener("click", () => {
       dismissedId = currentId;
@@ -221,6 +286,21 @@
     });
     head.appendChild(close);
     panel.appendChild(head);
+
+    tabBar(
+      [
+        ["views", "Views"],
+        ["overview", "Overview"],
+        ["tags", "Tags"],
+      ],
+      panel,
+      () => renderPanel(data)
+    );
+
+    const views = el("div", "bmt-tabpane");
+    const overview = el("div", "bmt-tabpane");
+    const tags = el("div", "bmt-tabpane");
+    panel.appendChild(activeTab === "views" ? views : activeTab === "overview" ? overview : tags);
 
     const v = data.video;
     const p = data.pulse;
@@ -248,13 +328,14 @@
           : "Tracking just started — these are lifetime-average estimates until the next samples land (about 5 minutes)."
       )
     );
-    panel.appendChild(section("Realtime", rt));
+    views.appendChild(section("Realtime", rt));
+    views.appendChild(section("Thumbnail", thumbnailBox(v)));
 
     // Video block
     const vid = el("div");
     vid.appendChild(
       statGrid([
-        ["views", compact(v.views)],
+        ["views", compact(viewsOf(v))],
         ["likes", `${compact(v.likes)} · ${v.likeRate}%`],
         ["comments", `${compact(v.comments)} · ${v.commentRate}%`],
         ["age", v.publishedText || `${v.ageHours}h`],
@@ -267,19 +348,14 @@
       v.titleTips.slice(0, 3).forEach((t) => tips.appendChild(el("li", null, t)));
       vid.appendChild(tips);
     }
-    const dl = el("a", "bmt-dl", "⬇ Download thumbnail");
-    dl.href = v.thumbnail;
-    dl.target = "_blank";
-    dl.rel = "noreferrer";
-    vid.appendChild(dl);
-    panel.appendChild(section("Video", vid));
+    overview.appendChild(section("Video", vid));
 
     // Why it is winning
     if (data.why) {
       const why = el("div", "bmt-why");
       why.appendChild(el("div", "bmt-why-l", data.why.label));
       why.appendChild(el("div", "bmt-note", data.why.note));
-      panel.appendChild(section("Why it is winning (estimate)", why));
+      overview.appendChild(section("Why it is winning (estimate)", why));
     }
 
     // Official owner analytics (only for your own connected channel)
@@ -330,7 +406,7 @@
       box.appendChild(
         el("div", "bmt-note", "Official YouTube Analytics for your own channel — not an estimate.")
       );
-      panel.appendChild(section("Your channel — official numbers", box));
+      overview.appendChild(section("Your channel — official numbers", box));
     }
 
     // Tags
@@ -361,7 +437,7 @@
         )
       );
     }
-    panel.appendChild(
+    tags.appendChild(
       section(`Tags on this video (${data.tags.all.length})`, tagWrap, data.tags.all.join(", "))
     );
 
@@ -375,7 +451,7 @@
         c.appendChild(copyBtn(t.tag, "⧉"));
         chips.appendChild(c);
       });
-      panel.appendChild(
+      tags.appendChild(
         section(
           "Stronger tags to use",
           chips,
@@ -388,7 +464,7 @@
     if (data.hashtagIdeas.length) {
       const chips = el("div", "bmt-chips");
       data.hashtagIdeas.forEach((h) => chips.appendChild(el("span", "bmt-chip", h)));
-      panel.appendChild(section("Hashtags", chips, data.hashtagIdeas.join(" ")));
+      tags.appendChild(section("Hashtags", chips, data.hashtagIdeas.join(" ")));
     }
 
     // Channel
@@ -439,7 +515,7 @@
       sub.appendChild(el("span", null, "Latest uploads"));
       box.appendChild(sub);
       box.appendChild(list);
-      panel.appendChild(section(`Channel — ${c.title}`, box));
+      overview.appendChild(section(`Channel — ${c.title}`, box));
     }
   }
 
@@ -468,9 +544,15 @@
     }
     latest = resp.data;
     renderStrip(latest);
-    renderPanel(latest);
-    // vidIQ-style: the report is open by default on every video the user opens,
-    // until they close it for that video.
+    showPanel(latest);
+  }
+
+  /**
+   * vidIQ-style: the report is open by default on every video the user opens,
+   * until they close it for that video.
+   */
+  function showPanel(data) {
+    renderPanel(data);
     if (currentId !== dismissedId) {
       document.getElementById("bmt-pulse-panel")?.classList.add("open");
     }
@@ -493,7 +575,12 @@
     if (latest) load();
   });
   setInterval(() => {
-    if (videoIdFromUrl() && !document.getElementById("bmt-strip") && latest) renderStrip(latest);
+    if (!videoIdFromUrl() || !latest) return;
+    if (!document.getElementById("bmt-strip")) renderStrip(latest);
+    // YouTube rebuilds its right column on navigation; move the report back in.
+    const panel = document.getElementById("bmt-pulse-panel");
+    if (!panel || !panel.isConnected) showPanel(latest);
+    else buildPanel();
   }, 3000);
 
   setTimeout(start, 1200);

@@ -110,6 +110,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     openConnect().then(sendResponse);
     return true;
   }
+  if (msg?.type === "download") {
+    chrome.downloads
+      .download({ url: msg.url, filename: msg.filename || "thumbnail.jpg" })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ error: "Could not save the thumbnail." }));
+    return true;
+  }
   if (msg?.type === "signOut") {
     signOut().then(sendResponse);
     return true;
