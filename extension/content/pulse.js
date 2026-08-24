@@ -226,20 +226,103 @@
     panel.appendChild(bar);
   }
 
-  function thumbnailBox(video) {
-    const box = el("div", "bmt-thumb");
-    const img = el("img");
-    img.src = video.thumbnail;
-    box.appendChild(img);
-    const btn = el("button", "bmt-dl", "⬇ Download thumbnail");
-    btn.addEventListener("click", () =>
-      chrome.runtime.sendMessage({
-        type: "download",
-        url: video.thumbnail,
-        filename: `${(video.title || "thumbnail").replace(/[^\w\u0900-\u097F -]+/g, "").slice(0, 60)}.jpg`,
-      })
+  /** YouTube's stored files, biggest first. Not every video has every size. */
+  const THUMB_FILES = [
+    ["maxresdefault", "Original 1280×720"],
+    ["sddefault", "SD 640×480"],
+    ["hqdefault", "HQ 480×360"],
+    ["mqdefault", "MQ 320×180"],
+    ["default", "Small 120×90"],
+  ];
+
+  function thumbUrl(id, file) {
+    return `https://i.ytimg.com/vi/${id}/${file}.jpg`;
+  }
+
+  /** A missing size still returns YouTube's 120px grey placeholder. */
+  function probeThumb(url) {
+    return new Promise((resolve) => {
+      const probe = new Image();
+      probe.onload = () => resolve(probe.naturalWidth > 200);
+      probe.onerror = () => resolve(false);
+      probe.src = url;
+    });
+  }
+
+  function safeName(title) {
+    return (
+      (title || "thumbnail").replace(/[^\w\u0900-\u097F -]+/g, "").trim().slice(0, 60) ||
+      "thumbnail"
     );
+  }
+
+  function saveThumb(url, title, file, note) {
+    note.textContent = "Saving…";
+    chrome.runtime
+      .sendMessage({
+        type: "download",
+        url,
+        filename: `${safeName(title)} - ${file}.jpg`,
+      })
+      .then((resp) => {
+        note.textContent = resp?.error || "Saved to your Downloads folder.";
+      })
+      .catch(() => {
+        note.textContent = "Could not save the thumbnail.";
+      });
+  }
+
+  /**
+   * Big, highlighted thumbnail card: preview plus one-click download of the
+   * original file YouTube stores (no right-click → Save image).
+   */
+  function thumbnailBox(video) {
+    const id = video.videoId || videoIdFromUrl();
+    const box = el("div", "bmt-thumb");
+
+    const shot = el("div", "bmt-thumb-shot");
+    const img = el("img");
+    img.src = video.thumbnail || thumbUrl(id, "hqdefault");
+    shot.appendChild(img);
+    const badge = el("span", "bmt-thumb-badge", "checking size…");
+    shot.appendChild(badge);
+    box.appendChild(shot);
+
+    const note = el("div", "bmt-note", "One click saves the original file — no right-click needed.");
+    const sizes = el("div", "bmt-thumb-sizes");
+
+    const btn = el("button", "bmt-dl bmt-dl-big", "⬇ Download original thumbnail");
+    btn.addEventListener("click", () => {
+      const file = btn.dataset.file || "hqdefault";
+      saveThumb(thumbUrl(id, file), video.title, file, note);
+    });
     box.appendChild(btn);
+    box.appendChild(sizes);
+    box.appendChild(note);
+
+    // Find the largest file this video actually has, then offer the rest too.
+    (async () => {
+      let best = null;
+      for (const [file, label] of THUMB_FILES) {
+        const url = thumbUrl(id, file);
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await probeThumb(url);
+        if (!ok) continue;
+        if (!best) {
+          best = { file, label };
+          img.src = url;
+          badge.textContent = label;
+          btn.dataset.file = file;
+          btn.textContent = `⬇ Download original (${label.replace(/^[^ ]+ /, "")})`;
+          continue;
+        }
+        const alt = el("button", "bmt-thumb-size", label);
+        alt.addEventListener("click", () => saveThumb(url, video.title, file, note));
+        sizes.appendChild(alt);
+      }
+      if (!best) badge.textContent = "Preview only";
+    })();
+
     return box;
   }
 
