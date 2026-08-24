@@ -1,27 +1,502 @@
-// YouTube Studio: detect the video title being edited and offer suggestions.
+// YouTube Studio — Tag Studio panel.
+// Sits under the video's own Tags box: scores the tags already there, proposes
+// stronger ones from live search demand and from the videos that rank, drills
+// into any tag (searches / competition / related) and writes tags straight into
+// Studio's chip bar. No API key to paste — the dashboard sign-in carries over.
 (function () {
+  if (window.__bmtStudio) return;
+  window.__bmtStudio = true;
+
+  const LIMIT = 500;
+  const insightCache = new Map();
+  let report = null;
+  let status = "";
+  let openTag = null;
+  let openTab = "suggestions";
+  let busy = false;
+
+  /* ------------------------------ Studio DOM ------------------------------ */
+
+  function chipBar() {
+    const bars = [...document.querySelectorAll("ytcp-chip-bar")];
+    if (!bars.length) return null;
+    const tagged = bars.find((bar) => {
+      const box = bar.closest("ytcp-form-input-container, #tags-container, div");
+      return /\btags\b/i.test(box?.textContent?.slice(0, 200) || "");
+    });
+    return tagged || bars[bars.length - 1];
+  }
+
+  function chips() {
+    const bar = chipBar();
+    if (!bar) return [];
+    return [...bar.querySelectorAll("ytcp-chip")];
+  }
+
+  function chipText(chip) {
+    const node = chip.querySelector("#chip-text, .chip-text, span");
+    return (node?.textContent || chip.textContent || "").replace(/[✕✖×]\s*$/, "").trim();
+  }
+
+  function currentTags() {
+    return chips().map(chipText).filter(Boolean);
+  }
+
+  function tagsLength(list) {
+    return list.join(",").length;
+  }
+
+  function chipInput() {
+    const bar = chipBar();
+    if (!bar) return null;
+    return bar.querySelector("input#text-input, input, textarea");
+  }
+
+  /** Type a tag into Studio's chip bar and commit it the way a user would. */
+  function addTag(tag) {
+    const input = chipInput();
+    if (!input) return false;
+    const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(proto.prototype, "value").set;
+    input.focus();
+    setValue.call(input, tag);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      input.dispatchEvent(
+        new KeyboardEvent(type, {
+          bubbles: true,
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+        })
+      );
+    }
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  function removeTag(tag) {
+    const chip = chips().find((c) => chipText(c).toLowerCase() === tag.toLowerCase());
+    if (!chip) return false;
+    const btn = chip.querySelector(
+      "#delete-icon, ytcp-icon-button, tp-yt-iron-icon, button, [aria-label]"
+    );
+    if (!btn) return false;
+    btn.click();
+    return true;
+  }
+
+  /** Add tags one by one, stopping before YouTube's 500-character limit. */
+  function addMany(tags) {
+    const have = currentTags();
+    let len = tagsLength(have);
+    const used = new Set(have.map((t) => t.toLowerCase()));
+    let added = 0;
+    for (const tag of tags) {
+      const n = tag.trim();
+      if (!n || used.has(n.toLowerCase())) continue;
+      const cost = len === 0 ? n.length : n.length + 1;
+      if (len + cost > LIMIT) break;
+      if (!addTag(n)) break;
+      used.add(n.toLowerCase());
+      len += cost;
+      added += 1;
+    }
+    return added;
+  }
+
   function detectTitle() {
     const sels = [
       "ytcp-social-suggestions-textbox#title-textarea #textbox",
       "#title-textarea #textbox",
+      "#title-wrapper #textbox",
       "textarea#textbox",
       'div#textbox[aria-label*="title" i]',
     ];
     for (const s of sels) {
       const el = document.querySelector(s);
-      const text = el && (el.value || el.textContent || "").trim();
+      const text = (el?.value || el?.textContent || "").trim();
       if (text) return text;
     }
     return "";
   }
 
-  let tries = 0;
-  const timer = setInterval(() => {
-    tries += 1;
-    if (typeof window.bmtBuildPanel === "function") {
-      window.bmtBuildPanel(detectTitle());
-      clearInterval(timer);
+  /* -------------------------------- helpers ------------------------------- */
+
+  function h(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function band(score) {
+    return score >= 60 ? "hi" : score >= 35 ? "mid" : "lo";
+  }
+
+  function nice(n) {
+    if (!Number.isFinite(n)) return "—";
+    if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+    return String(n);
+  }
+
+  function copyBtn(label, text) {
+    const b = h("button", "bmt-ts-mini", label);
+    b.addEventListener("click", () => {
+      navigator.clipboard.writeText(text);
+      const old = b.textContent;
+      b.textContent = "Copied!";
+      setTimeout(() => (b.textContent = old), 1200);
+    });
+    return b;
+  }
+
+  /* --------------------------------- data --------------------------------- */
+
+  async function loadReport() {
+    const title = detectTitle();
+    if (!title) {
+      status = "Open a video's details page to research its tags.";
+      render();
+      return;
     }
-    if (tries > 20) clearInterval(timer);
-  }, 800);
+    busy = true;
+    status = "Reading live search demand…";
+    render();
+    const resp = await chrome.runtime.sendMessage({
+      type: "tagReport",
+      title,
+      tags: currentTags(),
+    });
+    busy = false;
+    if (resp?.error) {
+      status = resp.error;
+      report = null;
+      render(resp.needsAuth);
+      return;
+    }
+    report = resp.data;
+    status = "";
+    render();
+  }
+
+  async function loadInsight(tag) {
+    if (insightCache.has(tag)) return insightCache.get(tag);
+    insightCache.set(tag, null); // mark as loading
+    render();
+    const resp = await chrome.runtime.sendMessage({ type: "keywordInsight", keyword: tag });
+    const value = resp?.error ? { error: resp.error } : resp.data;
+    insightCache.set(tag, value);
+    render();
+    return value;
+  }
+
+  /* ---------------------------------- UI ---------------------------------- */
+
+  function mount() {
+    let panel = document.getElementById("bmt-tagstudio");
+    const bar = chipBar();
+    const anchor = bar
+      ? bar.closest("ytcp-form-input-container") || bar.parentElement
+      : null;
+    if (!anchor) return null;
+
+    if (!panel) {
+      panel = h("div");
+      panel.id = "bmt-tagstudio";
+    }
+    if (panel.parentElement !== anchor.parentElement || panel.previousElementSibling !== anchor) {
+      anchor.parentElement.insertBefore(panel, anchor.nextSibling);
+    }
+    return panel;
+  }
+
+  function tagRow(item, opts) {
+    const row = h("div", "bmt-ts-row");
+    const score = h("span", `bmt-ts-score bmt-ts-${band(item.score)}`, String(item.score));
+    row.appendChild(score);
+
+    const name = h("button", "bmt-ts-name", item.tag);
+    name.title = "See searches, competition and related tags";
+    name.addEventListener("click", () => {
+      openTag = openTag === item.tag ? null : item.tag;
+      if (openTag) loadInsight(openTag);
+      render();
+    });
+    row.appendChild(name);
+
+    if (opts?.add) {
+      const add = h("button", "bmt-ts-act", "+");
+      add.title = "Add this tag to the box";
+      add.addEventListener("click", () => {
+        addMany([item.tag]);
+        render();
+      });
+      row.appendChild(add);
+    }
+    if (opts?.remove) {
+      const del = h("button", "bmt-ts-act", "✕");
+      del.title = "Remove this weak tag from the box";
+      del.addEventListener("click", () => {
+        removeTag(item.tag);
+        setTimeout(render, 200);
+      });
+      row.appendChild(del);
+    }
+
+    const wrap = h("div", "bmt-ts-item");
+    wrap.appendChild(row);
+    if (openTag === item.tag) wrap.appendChild(insightBox(item.tag));
+    return wrap;
+  }
+
+  function insightBox(tag) {
+    const box = h("div", "bmt-ts-insight");
+    const data = insightCache.get(tag);
+    if (data === null || data === undefined) {
+      box.appendChild(h("div", "bmt-ts-muted", "Loading…"));
+      return box;
+    }
+    if (data.error) {
+      box.appendChild(h("div", "bmt-ts-muted", data.error));
+      return box;
+    }
+
+    const head = h("div", "bmt-ts-gauge");
+    head.appendChild(h("span", `bmt-ts-big bmt-ts-${band(data.score)}`, String(data.score)));
+    head.appendChild(h("span", "bmt-ts-muted", "Overall score"));
+    box.appendChild(head);
+
+    const stats = h("div", "bmt-ts-stats");
+    const stat = (k, v) => {
+      const r = h("div", "bmt-ts-stat");
+      r.appendChild(h("span", "bmt-ts-muted", k));
+      r.appendChild(h("strong", null, v));
+      stats.appendChild(r);
+    };
+    stat("Monthly searches (est.)", nice(data.monthlySearches));
+    stat("Competition", data.competitionLabel);
+    stat("Difficulty", `${data.difficulty}/100`);
+    stat("Opportunity", `${data.opportunity}/100`);
+    box.appendChild(stats);
+
+    if (data.related?.length) {
+      box.appendChild(h("div", "bmt-ts-sub", "Related tags"));
+      const chipsWrap = h("div", "bmt-ts-chips");
+      for (const r of data.related.slice(0, 14)) {
+        const c = h("button", `bmt-ts-chip bmt-ts-${band(r.score)}b`, `${r.score} ${r.tag} +`);
+        c.addEventListener("click", () => {
+          addMany([r.tag]);
+          render();
+        });
+        chipsWrap.appendChild(c);
+      }
+      box.appendChild(chipsWrap);
+
+      const addAll = h("button", "bmt-ts-mini", "Add all related");
+      addAll.addEventListener("click", () => {
+        addMany(data.related.map((r) => r.tag));
+        render();
+      });
+      box.appendChild(addAll);
+    }
+
+    if (data.topVideos?.length) {
+      box.appendChild(h("div", "bmt-ts-sub", "Ranking now"));
+      for (const v of data.topVideos.slice(0, 4)) {
+        const a = h("a", "bmt-ts-vid", `${nice(v.views)} · ${v.title}`);
+        a.href = `https://www.youtube.com/watch?v=${v.videoId}`;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        box.appendChild(a);
+      }
+    }
+
+    box.appendChild(
+      h("div", "bmt-ts-note", "Searches are estimates from live YouTube demand, not exact figures.")
+    );
+    return box;
+  }
+
+  function section(title, nodes, extra) {
+    const s = h("div", "bmt-ts-sec");
+    const head = h("div", "bmt-ts-head");
+    head.appendChild(h("span", null, title));
+    if (extra) head.appendChild(extra);
+    s.appendChild(head);
+    for (const n of nodes) s.appendChild(n);
+    return s;
+  }
+
+  function render(needsAuth) {
+    const panel = mount();
+    if (!panel) return;
+    panel.innerHTML = "";
+
+    /* header */
+    const head = h("div", "bmt-ts-top");
+    const brand = h("span", "bmt-ts-brand");
+    const logo = h("img", "bmt-ts-logo");
+    logo.src = chrome.runtime.getURL("icons/icon48.png");
+    logo.alt = "";
+    brand.appendChild(logo);
+    brand.appendChild(h("strong", null, "Bainsla Tag Studio"));
+    head.appendChild(brand);
+
+    const tags = currentTags();
+    const len = tagsLength(tags);
+    const meter = h(
+      "span",
+      `bmt-ts-meter bmt-ts-${len > LIMIT ? "lo" : len >= 420 ? "hi" : "mid"}`,
+      `${len}/${LIMIT} · ${tags.length} tags`
+    );
+    head.appendChild(meter);
+
+    const refresh = h("button", "bmt-ts-mini", busy ? "Working…" : "Refresh");
+    refresh.disabled = busy;
+    refresh.addEventListener("click", loadReport);
+    head.appendChild(refresh);
+    panel.appendChild(head);
+
+    if (status) {
+      const s = h("div", "bmt-ts-status", status);
+      panel.appendChild(s);
+    }
+    if (needsAuth) {
+      const btn = h("button", "bmt-ts-cta", "Sign in / Sign up");
+      btn.addEventListener("click", () => chrome.runtime.sendMessage({ type: "openConnect" }));
+      panel.appendChild(btn);
+      return;
+    }
+    if (!report) return;
+
+    /* title score */
+    const t = h("div", "bmt-ts-title");
+    t.appendChild(
+      h("span", `bmt-ts-score bmt-ts-${band(report.titleScore.score)}`, String(report.titleScore.score))
+    );
+    t.appendChild(h("span", null, "Title score"));
+    panel.appendChild(t);
+    const tips = h("ul", "bmt-ts-tips");
+    for (const r of report.titleScore.reasons.slice(0, 3)) tips.appendChild(h("li", null, r));
+    panel.appendChild(tips);
+
+    /* one-click actions */
+    const actions = h("div", "bmt-ts-actions");
+    const fit = h("button", "bmt-ts-cta", `Auto-fit best tags (${report.autofit.length}/500)`);
+    fit.title = "Replace the box with the strongest set that fits in 500 characters";
+    fit.addEventListener("click", () => {
+      const keep = new Set(report.autofit.used.map((t) => t.toLowerCase()));
+      for (const tag of currentTags()) {
+        if (!keep.has(tag.toLowerCase())) removeTag(tag);
+      }
+      setTimeout(() => {
+        addMany(report.autofit.used);
+        render();
+      }, 400);
+    });
+    actions.appendChild(fit);
+    actions.appendChild(copyBtn("Copy 500-char set", report.autofit.text));
+    if (report.hashtags?.length)
+      actions.appendChild(copyBtn("Copy hashtags", report.hashtags.join(" ")));
+    panel.appendChild(actions);
+
+    /* tabs */
+    const tabs = [
+      ["suggestions", `Suggestions (${report.suggestions.length})`],
+      ["ranking", `From ranking videos (${report.fromRanking.length})`],
+      ["yours", `Your tags (${report.yours.length})`],
+      ["weak", `Weak (${report.weak.length})`],
+    ];
+    const bar = h("div", "bmt-ts-tabs");
+    for (const [id, label] of tabs) {
+      const b = h("button", `bmt-ts-tab${openTab === id ? " bmt-ts-on" : ""}`, label);
+      b.addEventListener("click", () => {
+        openTab = id;
+        render();
+      });
+      bar.appendChild(b);
+    }
+    panel.appendChild(bar);
+
+    if (openTab === "suggestions") {
+      const addAll = h("button", "bmt-ts-mini", "Add all that fit");
+      addAll.addEventListener("click", () => {
+        addMany(report.suggestions.map((x) => x.tag));
+        render();
+      });
+      panel.appendChild(
+        section(
+          "Tags people are searching now",
+          report.suggestions.map((x) => tagRow(x, { add: true })),
+          addAll
+        )
+      );
+    } else if (openTab === "ranking") {
+      const addAll = h("button", "bmt-ts-mini", "Add all that fit");
+      addAll.addEventListener("click", () => {
+        addMany(report.fromRanking.map((x) => x.tag));
+        render();
+      });
+      panel.appendChild(
+        section(
+          "Tags the top-ranking videos use",
+          report.fromRanking.map((x) => tagRow(x, { add: true })),
+          addAll
+        )
+      );
+      const comps = h("div", "bmt-ts-comps");
+      for (const c of report.competitors.slice(0, 5)) {
+        const a = h("a", "bmt-ts-vid", `${nice(c.views)} · ${c.channel} — ${c.title}`);
+        a.href = `https://www.youtube.com/watch?v=${c.videoId}`;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        comps.appendChild(a);
+      }
+      panel.appendChild(comps);
+    } else if (openTab === "yours") {
+      panel.appendChild(
+        section(
+          "Tags in the box, strongest first",
+          report.yours.length
+            ? report.yours.map((x) => tagRow(x, {}))
+            : [h("div", "bmt-ts-muted", "No tags with measurable search demand yet.")]
+        )
+      );
+    } else {
+      panel.appendChild(
+        section(
+          "No measurable search demand — safe to drop",
+          report.weak.length
+            ? report.weak.map((x) => tagRow(x, { remove: true }))
+            : [h("div", "bmt-ts-muted", "Every tag in the box has search demand. 👍")]
+        )
+      );
+    }
+  }
+
+  /* ------------------------------ life cycle ------------------------------ */
+
+  let lastKey = "";
+  function tick() {
+    if (!chipBar()) return;
+    // Keyed on the video, not the title text: typing in the title box must not
+    // fire a fresh research call (and burn quota) on every keystroke.
+    const key = location.pathname;
+    if (key !== lastKey && detectTitle()) {
+      lastKey = key;
+      report = null;
+      openTag = null;
+      insightCache.clear();
+      loadReport();
+      return;
+    }
+    if (!document.getElementById("bmt-tagstudio")) render();
+  }
+
+  setInterval(tick, 1500);
+  tick();
 })();

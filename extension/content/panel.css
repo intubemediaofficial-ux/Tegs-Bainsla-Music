@@ -436,3 +436,284 @@ html[dark] #bmt-strip .bmt-s-item,
   font-weight: 700;
   color: #6ee7b7;
 }
+
+/* --------------------- YouTube Studio: Tag Studio panel -------------------- */
+#bmt-tagstudio {
+  margin: 12px 0 20px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid #dfe3ea;
+  background: linear-gradient(180deg, #ffffff, #f6f8ff);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12.5px;
+  color: #16181d;
+  max-width: 720px;
+}
+html[dark] #bmt-tagstudio,
+ytcp-app[dark] #bmt-tagstudio {
+  border-color: #2b2b32;
+  background: linear-gradient(180deg, #1f1f26, #17171c);
+  color: #e9ecf3;
+}
+#bmt-tagstudio .bmt-ts-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#bmt-tagstudio .bmt-ts-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+#bmt-tagstudio .bmt-ts-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+#bmt-tagstudio .bmt-ts-meter {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 11px;
+  background: #eef2ff;
+  color: #3730a3;
+}
+#bmt-tagstudio .bmt-ts-mini {
+  border: 1px solid #c7d2fe;
+  background: #fff;
+  color: #4338ca;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+html[dark] #bmt-tagstudio .bmt-ts-mini {
+  background: #23232b;
+  border-color: #3f3f52;
+  color: #c7d2fe;
+}
+#bmt-tagstudio .bmt-ts-cta {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(90deg, #6366f1, #db2777);
+}
+#bmt-tagstudio .bmt-ts-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+#bmt-tagstudio .bmt-ts-status,
+#bmt-tagstudio .bmt-ts-muted,
+#bmt-tagstudio .bmt-ts-note {
+  color: #64748b;
+  font-size: 11px;
+  margin: 6px 0;
+}
+#bmt-tagstudio .bmt-ts-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-weight: 600;
+}
+#bmt-tagstudio .bmt-ts-tips {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  color: #64748b;
+  font-size: 11px;
+}
+#bmt-tagstudio .bmt-ts-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+#bmt-tagstudio .bmt-ts-tab {
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#bmt-tagstudio .bmt-ts-tab.bmt-ts-on {
+  background: #eef2ff;
+  color: #4338ca;
+}
+html[dark] #bmt-tagstudio .bmt-ts-tab {
+  color: #aab3c5;
+}
+html[dark] #bmt-tagstudio .bmt-ts-tab.bmt-ts-on {
+  background: #2e2e3d;
+  color: #c7d2fe;
+}
+#bmt-tagstudio .bmt-ts-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 11.5px;
+  margin: 6px 0;
+}
+#bmt-tagstudio .bmt-ts-head .bmt-ts-mini {
+  margin-left: auto;
+}
+#bmt-tagstudio .bmt-ts-sec {
+  max-height: 420px;
+  overflow: auto;
+}
+#bmt-tagstudio .bmt-ts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+#bmt-tagstudio .bmt-ts-score {
+  min-width: 28px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 2px 4px;
+  color: #fff;
+}
+#bmt-tagstudio .bmt-ts-hi {
+  background: #16a34a;
+}
+#bmt-tagstudio .bmt-ts-mid {
+  background: #d97706;
+}
+#bmt-tagstudio .bmt-ts-lo {
+  background: #dc2626;
+}
+#bmt-tagstudio .bmt-ts-name {
+  flex: 1;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
+#bmt-tagstudio .bmt-ts-name:hover {
+  text-decoration: underline;
+}
+#bmt-tagstudio .bmt-ts-act {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #374151;
+}
+html[dark] #bmt-tagstudio .bmt-ts-act {
+  background: #24242d;
+  border-color: #3f3f52;
+  color: #e5e7eb;
+}
+#bmt-tagstudio .bmt-ts-insight {
+  margin: 4px 0 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+}
+html[dark] #bmt-tagstudio .bmt-ts-insight {
+  background: #22222b;
+  border-color: #33333f;
+}
+#bmt-tagstudio .bmt-ts-gauge {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+#bmt-tagstudio .bmt-ts-big {
+  font-size: 26px;
+  font-weight: 800;
+  color: #16a34a;
+  background: transparent;
+  padding: 0;
+}
+#bmt-tagstudio .bmt-ts-big.bmt-ts-mid {
+  color: #d97706;
+  background: transparent;
+}
+#bmt-tagstudio .bmt-ts-big.bmt-ts-lo {
+  color: #dc2626;
+  background: transparent;
+}
+#bmt-tagstudio .bmt-ts-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  margin: 8px 0;
+}
+#bmt-tagstudio .bmt-ts-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+}
+#bmt-tagstudio .bmt-ts-sub {
+  font-weight: 700;
+  font-size: 11px;
+  margin: 8px 0 4px;
+}
+#bmt-tagstudio .bmt-ts-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+#bmt-tagstudio .bmt-ts-chip {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  cursor: pointer;
+  color: #111827;
+}
+html[dark] #bmt-tagstudio .bmt-ts-chip {
+  background: #2a2a34;
+  border-color: #3f3f52;
+  color: #e5e7eb;
+}
+#bmt-tagstudio .bmt-ts-chip.bmt-ts-hib {
+  border-color: #16a34a;
+}
+#bmt-tagstudio .bmt-ts-chip.bmt-ts-midb {
+  border-color: #d97706;
+}
+#bmt-tagstudio .bmt-ts-chip.bmt-ts-lob {
+  border-color: #dc2626;
+}
+#bmt-tagstudio .bmt-ts-vid,
+#bmt-tagstudio .bmt-ts-comps a {
+  display: block;
+  font-size: 11px;
+  color: #4338ca;
+  text-decoration: none;
+  margin: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
