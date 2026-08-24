@@ -89,6 +89,35 @@ async function pulse(videoId) {
   }
 }
 
+/**
+ * Category-wise viral board for the panel's Viral tab. Cached in memory for a
+ * few minutes: the snapshots refresh server-side, and the panel re-renders on
+ * every tab click.
+ */
+let trendingCache = { at: 0, payload: null };
+const TRENDING_TTL_MS = 5 * 60 * 1000;
+
+async function trending() {
+  if (trendingCache.payload && Date.now() - trendingCache.at < TRENDING_TTL_MS) {
+    return trendingCache.payload;
+  }
+  const { apiBase, apiKey } = await getConfig();
+  if (!apiKey) return { error: SIGN_IN_HINT, needsAuth: true };
+  const base = apiBase.replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/api/ext/trending`, { headers: { "x-api-key": apiKey } });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 401) return { error: SIGN_IN_HINT, needsAuth: true };
+      return { error: data.error || `Request failed (${res.status})` };
+    }
+    trendingCache = { at: Date.now(), payload: { data } };
+    return trendingCache.payload;
+  } catch (e) {
+    return { error: `Cannot reach ${base}. Check your connection.` };
+  }
+}
+
 /** Tag Studio panel: `report` scores the box, `keyword` drills into one tag. */
 async function tagStudio(payload) {
   const { apiBase, apiKey } = await getConfig();
@@ -118,6 +147,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "keywordInsight") {
     tagStudio({ action: "keyword", keyword: msg.keyword }).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "trending") {
+    trending().then(sendResponse);
     return true;
   }
   if (msg?.type === "pulse") {

@@ -7,7 +7,11 @@
   let timer = null;
   let latest = null;
   let dismissedId = "";
-  let activeTab = "views";
+  let activeTab = "overview";
+  let storyOpen = false;
+  let viral = null; // { categories: [...] } once the Viral tab has loaded
+  let viralError = "";
+  let viralCat = ""; // which category is expanded
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -190,6 +194,227 @@
       bar.title = `${Math.round(d)} views/hr`;
       wrap.appendChild(bar);
     }
+    return wrap;
+  }
+
+  /* ---------------------------- realtime story ---------------------------- */
+
+  const HOUR = 3600000;
+
+  function timeLabel(t, bucketHours) {
+    const d = new Date(t);
+    return bucketHours >= 24
+      ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" })
+      : d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric" });
+  }
+
+  /**
+   * Group the raw 5-minute samples into readable blocks (half-hourly for a
+   * short history, daily once we have days of it) with the views gained and the
+   * rate inside each block.
+   */
+  function buckets(samples) {
+    if (!samples || samples.length < 3) return [];
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    const spanH = (last.t - first.t) / HOUR;
+    if (spanH < 1) return [];
+    const size = spanH > 72 ? 24 : spanH > 24 ? 6 : spanH > 6 ? 2 : 0.5;
+    const out = [];
+    for (let i = 1; i < samples.length; i += 1) {
+      const prev = samples[i - 1];
+      const cur = samples[i];
+      const hours = (cur.t - prev.t) / HOUR;
+      if (hours <= 0) continue;
+      const slot = Math.floor((cur.t - first.t) / (size * HOUR));
+      const b = out[out.length - 1];
+      if (b && b.slot === slot) {
+        b.views += Math.max(0, cur.views - prev.views);
+        b.hours += hours;
+        b.end = cur.t;
+        b.total = cur.views;
+      } else {
+        out.push({
+          slot,
+          start: prev.t,
+          end: cur.t,
+          views: Math.max(0, cur.views - prev.views),
+          hours,
+          total: cur.views,
+        });
+      }
+    }
+    return out
+      .filter((b) => b.hours > 0)
+      .map((b) => ({ ...b, rate: Math.round(b.views / b.hours), size }));
+  }
+
+  function median(nums) {
+    if (!nums.length) return 0;
+    const s = [...nums].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  }
+
+  /**
+   * Plain-language history of the video: how long it stayed quiet, when it woke
+   * up, its best hour and where it stands now. Built from the same samples the
+   * sparkline uses — public counters only, so it is honest for any video.
+   */
+  function storyText(pulse, video) {
+    const b = buckets(pulse.samples);
+    if (b.length < 2) return null;
+    const spanH = (b[b.length - 1].end - b[0].start) / HOUR;
+    const now = b[b.length - 1];
+    const before = b.slice(0, -1);
+    const base = median(before.map((x) => x.rate)) || 1;
+    const peak = b.reduce((a, x) => (x.rate > a.rate ? x : a), b[0]);
+    const tracked =
+      spanH >= 48 ? `${(spanH / 24).toFixed(1)} days` : `${Math.round(spanH)} hours`;
+
+    const parts = [`Tracked here for ${tracked}.`];
+    const ratio = now.rate / base;
+    if (ratio >= 1.6) {
+      const quiet = before.filter((x) => x.rate <= base * 1.2).length;
+      parts.push(
+        `It stayed slow at about ${compact(base)} views/hr for ${quiet || before.length} of the last ${
+          b.length
+        } blocks, then picked up around ${timeLabel(now.start, now.size)}.`
+      );
+      parts.push(`Right now it is doing ${compact(now.rate)} views/hr — ${ratio.toFixed(1)}× that quiet rate.`);
+    } else if (ratio <= 0.6) {
+      parts.push(
+        `It was running at about ${compact(base)} views/hr and has cooled down to ${compact(
+          now.rate
+        )} views/hr since ${timeLabel(now.start, now.size)}.`
+      );
+    } else {
+      parts.push(`It is holding steady around ${compact(now.rate)} views/hr.`);
+    }
+    parts.push(
+      `Best block so far: ${timeLabel(peak.start, peak.size)} with ${compact(peak.views)} views (${compact(
+        peak.rate
+      )}/hr). Total now ${compact(viewsOf(video))}.`
+    );
+    return { text: parts.join(" "), blocks: b };
+  }
+
+  /** The point-by-point list behind the story paragraph. */
+  function storyTimeline(blocks) {
+    const list = el("div", "bmt-timeline");
+    [...blocks]
+      .reverse()
+      .slice(0, 24)
+      .forEach((b) => {
+        const row = el("div", "bmt-tl-row");
+        row.appendChild(el("span", "bmt-tl-t", timeLabel(b.start, b.size)));
+        row.appendChild(el("span", "bmt-tl-v", `+${compact(b.views)}`));
+        row.appendChild(el("span", "bmt-tl-r", `${compact(b.rate)}/hr`));
+        row.appendChild(el("span", "bmt-tl-tot", compact(b.total)));
+        list.appendChild(row);
+      });
+    const head = el("div", "bmt-tl-row bmt-tl-head");
+    head.appendChild(el("span", "bmt-tl-t", "when"));
+    head.appendChild(el("span", "bmt-tl-v", "views"));
+    head.appendChild(el("span", "bmt-tl-r", "rate"));
+    head.appendChild(el("span", "bmt-tl-tot", "total"));
+    list.insertBefore(head, list.firstChild);
+    return list;
+  }
+
+  /* -------------------------------- viral tab ------------------------------ */
+
+  function viralPane(rerender) {
+    const wrap = el("div");
+    if (viralError) {
+      wrap.appendChild(el("div", "bmt-note", viralError));
+      return wrap;
+    }
+    if (!viral) {
+      wrap.appendChild(el("div", "bmt-note", "Loading what is viral right now…"));
+      chrome.runtime
+        .sendMessage({ type: "trending" })
+        .then((resp) => {
+          if (resp?.error) viralError = resp.error;
+          else viral = resp?.data || { categories: [] };
+          rerender();
+        })
+        .catch(() => {
+          viralError = "Could not load the viral board.";
+          rerender();
+        });
+      return wrap;
+    }
+
+    const cats = viral.categories || [];
+    if (!cats.length) {
+      wrap.appendChild(el("div", "bmt-note", "No categories tracked yet — add them in the dashboard."));
+      return wrap;
+    }
+    if (!cats.some((c) => c.id === viralCat)) viralCat = cats[0].id;
+
+    const picker = el("div", "bmt-cats");
+    cats.forEach((c) => {
+      const b = el("button", `bmt-cat${c.id === viralCat ? " bmt-cat-on" : ""}`, c.label);
+      b.addEventListener("click", () => {
+        viralCat = c.id;
+        rerender();
+      });
+      picker.appendChild(b);
+    });
+    wrap.appendChild(picker);
+
+    const cat = cats.find((c) => c.id === viralCat);
+    const list = el("div", "bmt-list");
+    cat.videos.forEach((v) => {
+      const row = el("a", "bmt-row-link");
+      row.href = v.url;
+      row.target = "_blank";
+      const img = el("img");
+      img.src = v.thumbnail;
+      row.appendChild(img);
+      const meta = el("div");
+      meta.appendChild(el("div", "bmt-row-t", v.title));
+      meta.appendChild(
+        el(
+          "div",
+          "bmt-note",
+          `${compact(v.views)} views · ${v.publishedText} · ${compact(v.velocity)}/hr · viral ${v.viralScore}/100`
+        )
+      );
+      if (v.why) meta.appendChild(el("div", "bmt-why-l", v.why));
+      meta.appendChild(el("div", "bmt-note", v.channel));
+      row.appendChild(meta);
+      list.appendChild(row);
+    });
+    wrap.appendChild(section(`Rising now — ${cat.label}`, list));
+
+    if (cat.topTags.length) {
+      const chips = el("div", "bmt-chips");
+      cat.topTags.forEach((t) => {
+        const c = el("span", "bmt-chip bmt-chip-ok");
+        c.appendChild(el("span", null, t));
+        c.appendChild(copyBtn(t, "⧉"));
+        chips.appendChild(c);
+      });
+      wrap.appendChild(section("Tags these videos share", chips, cat.topTags.join(", ")));
+    }
+    if (cat.hashtags.length) {
+      const chips = el("div", "bmt-chips");
+      cat.hashtags.forEach((h) => chips.appendChild(el("span", "bmt-chip", h)));
+      wrap.appendChild(section("Hashtags trending here", chips, cat.hashtags.join(" ")));
+    }
+    if (cat.recommendation) {
+      wrap.appendChild(section("What to do", el("div", "bmt-note", cat.recommendation)));
+    }
+    wrap.appendChild(
+      el(
+        "div",
+        "bmt-note",
+        `Public data, refreshed on the server${
+          cat.updatedAt ? ` (${new Date(cat.updatedAt).toLocaleString()})` : ""
+        }. Viral score is our estimate, not a YouTube number.`
+      )
+    );
     return wrap;
   }
 
@@ -380,20 +605,31 @@
     head.appendChild(close);
     panel.appendChild(head);
 
+    const rerender = () => renderPanel(data);
     tabBar(
       [
-        ["views", "Views"],
         ["overview", "Overview"],
+        ["views", "Realtime"],
+        ["thumb", "Thumbnail"],
         ["tags", "Tags"],
+        ["viral", "Viral"],
       ],
       panel,
-      () => renderPanel(data)
+      rerender
     );
 
-    const views = el("div", "bmt-tabpane");
-    const overview = el("div", "bmt-tabpane");
-    const tags = el("div", "bmt-tabpane");
-    panel.appendChild(activeTab === "views" ? views : activeTab === "overview" ? overview : tags);
+    // One pane per tab, so the sidebar stays short instead of one long scroll.
+    const panes = {
+      overview: el("div", "bmt-tabpane"),
+      views: el("div", "bmt-tabpane"),
+      thumb: el("div", "bmt-tabpane"),
+      tags: el("div", "bmt-tabpane"),
+      viral: el("div", "bmt-tabpane"),
+    };
+    const views = panes.views;
+    const overview = panes.overview;
+    const tags = panes.tags;
+    panel.appendChild(panes[activeTab] || panes.overview);
 
     const v = data.video;
     const p = data.pulse;
@@ -422,7 +658,27 @@
       )
     );
     views.appendChild(section("Realtime", rt));
-    views.appendChild(section("Thumbnail", thumbnailBox(v)));
+
+    // The story of this video's views, in words. Click it for the exact points.
+    const story = storyText(p, v);
+    if (story) {
+      const box = el("div");
+      const para = el("div", "bmt-story", story.text);
+      para.title = "Click for the point-by-point history";
+      para.addEventListener("click", () => {
+        storyOpen = !storyOpen;
+        rerender();
+      });
+      box.appendChild(para);
+      box.appendChild(
+        el("div", "bmt-note", storyOpen ? "Click the text to hide the points." : "Click the text for point-by-point views.")
+      );
+      if (storyOpen) box.appendChild(storyTimeline(story.blocks));
+      views.appendChild(section("What happened with this video", box));
+    }
+
+    panes.thumb.appendChild(section("Thumbnail", thumbnailBox(v)));
+    panes.viral.appendChild(section("Viral by category", viralPane(rerender)));
 
     // Video block
     const vid = el("div");
@@ -573,21 +829,25 @@
           ["uploads / week", String(c.uploadsPerWeek)],
         ])
       );
+      // Channel keywords belong with the other tag lists, not under the stats.
       if (c.keywords.length) {
         const chips = el("div", "bmt-chips");
-        c.keywords.slice(0, 18).forEach((k) => {
+        c.keywords.slice(0, 24).forEach((k) => {
           const chip = el("span", "bmt-chip");
           chip.appendChild(el("span", null, k));
           chip.appendChild(copyBtn(k, "⧉"));
           chips.appendChild(chip);
         });
-        const kw = el("div");
-        const h = el("div", "bmt-sub");
-        h.appendChild(el("span", null, `Channel tags (${c.keywords.length})`));
-        h.appendChild(copyBtn(c.keywords.join(", "), "Copy all"));
-        kw.appendChild(h);
-        kw.appendChild(chips);
-        box.appendChild(kw);
+        tags.appendChild(
+          section(`Channel tags (${c.keywords.length})`, chips, c.keywords.join(", "))
+        );
+      } else {
+        tags.appendChild(
+          section(
+            "Channel tags",
+            el("div", "bmt-note", "This channel has not set any public channel keywords.")
+          )
+        );
       }
       const list = el("div", "bmt-list");
       c.recent.forEach((r) => {
@@ -656,6 +916,8 @@
     if (!id || id === currentId) return;
     currentId = id;
     dismissedId = "";
+    storyOpen = false;
+    viralError = "";
     renderStrip(null);
     load();
     if (timer) clearInterval(timer);
