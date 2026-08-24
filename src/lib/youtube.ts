@@ -45,6 +45,57 @@ export const DEFAULT_YT_TAGS = new Set([
   "upload",
 ]);
 
+// Category words that describe *any* music video. A phrase made only of these
+// carries no topic, so it must never become the primary autocomplete seed and
+// never alone make a suggestion look relevant ("dj song" -> "dj song xml file").
+const GENERIC_WORDS = new Set([
+  "song",
+  "songs",
+  "dj",
+  "remix",
+  "new",
+  "latest",
+  "old",
+  "best",
+  "top",
+  "full",
+  "official",
+  "video",
+  "videos",
+  "audio",
+  "mp3",
+  "hd",
+  "dance",
+  "status",
+  "viral",
+  "trending",
+  "reels",
+  "short",
+  "shorts",
+  "desi",
+  "ladies",
+  "love",
+  "gana",
+  "gaana",
+  "music",
+  "live",
+  "the",
+  "and",
+]);
+
+function topicWords(phrase: string): string[] {
+  return phrase
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}\p{M}]/gu, ""))
+    .filter((w) => w.length >= 3 && !GENERIC_WORDS.has(w));
+}
+
+/** No topic word at all: pure category phrase such as "dj song" or "ladies dance". */
+function isGenericPhrase(phrase: string): boolean {
+  return topicWords(phrase).length === 0;
+}
+
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const PREFIXES = ["new", "latest", "best", "top", "old", "full", "official"];
 
@@ -501,11 +552,17 @@ function deriveSeeds(seed: string, tags: string[]): string[] {
   // Prefer the most *specific* short latin phrase as the primary seed (the song
   // name is usually 1–3 words, e.g. "chomaso lagyo re"), so the video's own tags
   // rank with sensible low numbers instead of collapsing onto a broad category.
+  // Generic category phrases are pushed to the back: seeding autocomplete with
+  // one of them returns whatever the world searches around that category
+  // ("dj song xml file", "full dj songs telugu"), not this video's topic.
   const latinShort = tags
     .filter((t) => /[a-z]/i.test(t) && !DEVANAGARI.test(t))
     .map((t) => shortSeed(t))
     .filter((s) => s.length >= 3)
     .sort((a, b) => {
+      const ga = isGenericPhrase(a) ? 1 : 0;
+      const gb = isGenericPhrase(b) ? 1 : 0;
+      if (ga !== gb) return ga - gb;
       const wa = a.split(/\s+/).length;
       const wb = b.split(/\s+/).length;
       return wa - wb || a.length - b.length;
@@ -629,10 +686,16 @@ export async function rankTags(
   const usedNorms = new Set(trending.concat().map((t) => t.tag.toLowerCase()));
   for (const t of notTrending) usedNorms.add(t.toLowerCase());
 
+  // A suggestion must share a topic word with the video (title or its tags).
+  // Matching only on category words is what let "dj song xml file" through.
+  const context = new Set(topicWords([seed, ...tags].join(" ")));
+  const onTopic = (u: string) =>
+    context.size === 0 || topicWords(u).some((w) => context.has(w));
+
   const suggestions: RankedTag[] = [];
   for (let i = 0; i < universe.length && suggestions.length < 15; i++) {
     const u = universe[i];
-    if (usedNorms.has(u) || !isUsefulTag(u)) continue;
+    if (usedNorms.has(u) || !isUsefulTag(u) || !onTopic(u)) continue;
     suggestions.push({ tag: u, rank: i + 1 });
   }
 
