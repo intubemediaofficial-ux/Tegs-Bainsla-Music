@@ -89,7 +89,37 @@ async function pulse(videoId) {
   }
 }
 
+/** Tag Studio panel: `report` scores the box, `keyword` drills into one tag. */
+async function tagStudio(payload) {
+  const { apiBase, apiKey } = await getConfig();
+  if (!apiKey) return { error: SIGN_IN_HINT, needsAuth: true };
+  const base = apiBase.replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/api/ext/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+      body: JSON.stringify({ hl: "en", gl: "IN", ...payload }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 401) return { error: SIGN_IN_HINT, needsAuth: true };
+      return { error: data.error || `Request failed (${res.status})` };
+    }
+    return { data };
+  } catch (e) {
+    return { error: `Cannot reach ${base}. Check your connection.` };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "tagReport") {
+    tagStudio({ action: "report", title: msg.title, tags: msg.tags || [] }).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "keywordInsight") {
+    tagStudio({ action: "keyword", keyword: msg.keyword }).then(sendResponse);
+    return true;
+  }
   if (msg?.type === "pulse") {
     pulse(msg.videoId).then(sendResponse);
     return true; // async
