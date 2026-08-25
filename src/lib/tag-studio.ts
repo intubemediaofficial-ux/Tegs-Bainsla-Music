@@ -17,6 +17,7 @@ import {
   searchVideos,
   seedFromTitle,
   shortSeedOf,
+  topicWords,
 } from "./youtube";
 import { hasYouTubeApiKey, fetchVideoTags } from "./youtube-api";
 import { scoreKeyword, scoreTitle } from "./scoring";
@@ -76,6 +77,17 @@ function makeRelevance(seeds: string[]) {
   const tests = seeds.filter(Boolean).map(makeSeedRelevance);
   return (candidate: string): boolean =>
     tests.length === 0 || tests.some((t) => t(candidate));
+}
+
+/**
+ * Keep candidates inside the video's own topic. A Gurjar/Rasiya song must not
+ * pull in tags from another category, so a candidate has to share at least one
+ * non-category word ("rasiya", "khatana", "gurjar") with the title/tags.
+ */
+function makeTopicFilter(context: string[]) {
+  const words = new Set(topicWords(context.filter(Boolean).join(" ")));
+  return (candidate: string): boolean =>
+    words.size === 0 || topicWords(candidate).some((w) => words.has(w));
 }
 
 function normalise(list: string[]): string[] {
@@ -264,19 +276,22 @@ export async function tagStudioReport(
   weak.sort((a, b) => b.score - a.score);
 
   const relevant = makeRelevance([seed || title, ...mine.slice(0, 3)]);
+  const onTopic = makeTopicFilter([title, ...mine]);
   const suggestions: ScoredTag[] = [];
   universe.forEach((u, i) => {
     if (suggestions.length >= 25) return;
-    if (used.has(u) || !isUsefulTag(u) || u.length > 60 || !relevant(u)) return;
+    if (used.has(u) || !isUsefulTag(u) || u.length > 60 || !relevant(u) || !onTopic(u)) return;
     used.add(u);
     suggestions.push({ tag: u, score: rankScore(i + 1), rank: i + 1, source: "search" });
   });
-  if (suggestions.length < 12) {
-    // Long or fully Devanagari titles can filter down to almost nothing; keep
-    // the demand order rather than showing an empty list.
+  // Long or fully Devanagari titles can filter down to almost nothing; relax the
+  // checks one step at a time rather than showing an empty list.
+  for (const relax of ["seed", "topic"] as const) {
+    if (suggestions.length >= 12) break;
     universe.forEach((u, i) => {
       if (suggestions.length >= 12) return;
       if (used.has(u) || !isUsefulTag(u) || u.length > 60) return;
+      if (relax === "seed" ? !onTopic(u) : !relevant(u)) return;
       used.add(u);
       suggestions.push({ tag: u, score: rankScore(i + 1), rank: i + 1, source: "search" });
     });
@@ -284,12 +299,15 @@ export async function tagStudioReport(
   }
 
   const rankingPicks: string[] = [];
-  for (const tag of rankingTags) {
-    if (rankingPicks.length >= 20) break;
-    const n = tag.toLowerCase();
-    if (used.has(n)) continue;
-    used.add(n);
-    rankingPicks.push(tag);
+  for (const topicOnly of [true, false]) {
+    if (rankingPicks.length >= 8) break;
+    for (const tag of rankingTags) {
+      if (rankingPicks.length >= 20) break;
+      const n = tag.toLowerCase();
+      if (used.has(n) || (topicOnly && !onTopic(tag))) continue;
+      used.add(n);
+      rankingPicks.push(tag);
+    }
   }
   const rankingDemand = await selfDemand(rankingPicks, hl, gl);
   const fromRanking: ScoredTag[] = rankingPicks.map((tag) => {
@@ -322,7 +340,7 @@ export async function tagStudioReport(
     fromRanking,
     hashtags: generateHashtags(
       seed || title,
-      universe.filter(relevant),
+      universe.filter((u) => relevant(u) && onTopic(u)),
       12
     ),
     autofit: {
@@ -385,7 +403,7 @@ function round2(n: number): number {
  */
 export async function keywordInsight(
   keyword: string,
-  opts: { hl?: string; gl?: string } = {}
+  opts: { hl?: string; gl?: string; context?: string } = {}
 ): Promise<KeywordInsight> {
   const hl = opts.hl ?? "en";
   const gl = opts.gl ?? "IN";
@@ -399,16 +417,24 @@ export async function keywordInsight(
 
   const metrics = scoreKeyword(k, universe.length, videos);
   const relevant = makeRelevance([k]);
+  // Context = the video's own title/tags, so a tag clicked on a Rasiya video
+  // only pulls related tags from that world.
+  const onTopic = makeTopicFilter([k, opts.context ?? ""]);
   const related: ScoredTag[] = [];
   const seen = new Set([k.toLowerCase()]);
-  for (const list of [direct, universe]) {
-    list.forEach((u, i) => {
-      const n = u.trim().toLowerCase();
-      if (related.length >= 20 || !n || seen.has(n) || !isUsefulTag(n) || !relevant(n)) return;
-      seen.add(n);
-      related.push({ tag: n, score: rankScore(i + 1), rank: i + 1, source: "search" });
-    });
-  }
+  const collect = (topicOnly: boolean, max: number) => {
+    for (const list of [direct, universe]) {
+      list.forEach((u, i) => {
+        const n = u.trim().toLowerCase();
+        if (related.length >= max || !n || seen.has(n) || !isUsefulTag(n) || !relevant(n)) return;
+        if (topicOnly && !onTopic(n)) return;
+        seen.add(n);
+        related.push({ tag: n, score: rankScore(i + 1), rank: i + 1, source: "search" });
+      });
+    }
+  };
+  collect(true, 20);
+  if (related.length < 5) collect(false, 8);
 
   const avgTopViews =
     videos.length > 0

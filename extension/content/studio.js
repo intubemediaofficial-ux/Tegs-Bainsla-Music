@@ -12,7 +12,7 @@
   let report = null;
   let status = "";
   let openTag = null;
-  let openTab = "suggestions";
+  let openTab = "yours";
   let busy = false;
 
   /* ------------------------------ Studio DOM ------------------------------ */
@@ -187,7 +187,12 @@
     if (insightCache.has(tag)) return insightCache.get(tag);
     insightCache.set(tag, null); // mark as loading
     render();
-    const resp = await chrome.runtime.sendMessage({ type: "keywordInsight", keyword: tag });
+    const resp = await chrome.runtime.sendMessage({
+      type: "keywordInsight",
+      keyword: tag,
+      // Keep the related tags inside this video's own topic.
+      context: [detectTitle(), ...currentTags()].join(" ").slice(0, 1200),
+    });
     const value = resp?.error ? { error: resp.error } : resp.data;
     insightCache.set(tag, value);
     render();
@@ -214,19 +219,26 @@
     return panel;
   }
 
-  function tagRow(item, opts) {
-    const row = h("div", "bmt-ts-row");
-    const score = h("span", `bmt-ts-score bmt-ts-${band(item.score)}`, String(item.score));
-    row.appendChild(score);
+  /**
+   * One tag card for the two-column grid. Returns the card plus, when the tag is
+   * open, a full-width drill-down that sits right under it.
+   */
+  function tagCard(item, opts) {
+    const card = h("div", `bmt-ts-card${openTag === item.tag ? " bmt-ts-open" : ""}`);
+
+    const top = h("div", "bmt-ts-row");
+    const score = h("span", `bmt-ts-score bmt-ts-${band(item.score)}`, `${item.score}%`);
+    score.title = "Search-demand strength (0-100%) from live YouTube autocomplete";
+    top.appendChild(score);
 
     const name = h("button", "bmt-ts-name", item.tag);
-    name.title = "See searches, competition and related tags";
+    name.title = "Click for searches, competition and related tags";
     name.addEventListener("click", () => {
       openTag = openTag === item.tag ? null : item.tag;
       if (openTag) loadInsight(openTag);
       render();
     });
-    row.appendChild(name);
+    top.appendChild(name);
 
     if (opts?.add) {
       const add = h("button", "bmt-ts-act", "+");
@@ -235,22 +247,36 @@
         addMany([item.tag]);
         render();
       });
-      row.appendChild(add);
+      top.appendChild(add);
     }
     if (opts?.remove) {
       const del = h("button", "bmt-ts-act", "✕");
-      del.title = "Remove this weak tag from the box";
+      del.title = "Remove this tag from the box";
       del.addEventListener("click", () => {
         removeTag(item.tag);
         setTimeout(render, 200);
       });
-      row.appendChild(del);
+      top.appendChild(del);
     }
+    card.appendChild(top);
 
-    const wrap = h("div", "bmt-ts-item");
-    wrap.appendChild(row);
-    if (openTag === item.tag) wrap.appendChild(insightBox(item.tag));
-    return wrap;
+    const meta = h("div", "bmt-ts-meta");
+    const rank = h("span", "bmt-ts-pill", item.rank ? `Rank #${item.rank}` : "No live demand");
+    rank.title = "Position in live autocomplete demand (proxy, not an official YouTube rank)";
+    meta.appendChild(rank);
+    const cached = insightCache.get(item.tag);
+    if (cached && !cached.error) {
+      const vol = h("span", "bmt-ts-pill", `${nice(cached.monthlySearches)}/mo est.`);
+      vol.title = "Estimated monthly searches";
+      meta.appendChild(vol);
+      meta.appendChild(h("span", "bmt-ts-pill", `${cached.competitionLabel} competition`));
+    }
+    card.appendChild(meta);
+
+    if (openTag !== item.tag) return [card];
+    const drill = insightBox(item.tag);
+    drill.classList.add("bmt-ts-wide");
+    return [card, drill];
   }
 
   function insightBox(tag) {
@@ -284,10 +310,15 @@
     box.appendChild(stats);
 
     if (data.related?.length) {
-      box.appendChild(h("div", "bmt-ts-sub", "Related tags"));
+      box.appendChild(h("div", "bmt-ts-sub", `Related tags for "${tag}"`));
+      const picks = data.related.slice(0, 5);
       const chipsWrap = h("div", "bmt-ts-chips");
-      for (const r of data.related.slice(0, 14)) {
-        const c = h("button", `bmt-ts-chip bmt-ts-${band(r.score)}b`, `${r.score} ${r.tag} +`);
+      for (const r of picks) {
+        const c = h("button", `bmt-ts-chip bmt-ts-${band(r.score)}b`);
+        c.appendChild(h("span", `bmt-ts-cscore bmt-ts-${band(r.score)}`, `${r.score}%`));
+        c.appendChild(h("span", "bmt-ts-ctext", r.tag));
+        c.appendChild(h("span", "bmt-ts-cadd", "+"));
+        c.title = r.rank ? `Rank #${r.rank} in live demand — click to add` : "Click to add";
         c.addEventListener("click", () => {
           addMany([r.tag]);
           render();
@@ -296,9 +327,9 @@
       }
       box.appendChild(chipsWrap);
 
-      const addAll = h("button", "bmt-ts-mini", "Add all related");
+      const addAll = h("button", "bmt-ts-mini", `Add these ${picks.length} tags`);
       addAll.addEventListener("click", () => {
-        addMany(data.related.map((r) => r.tag));
+        addMany(picks.map((r) => r.tag));
         render();
       });
       box.appendChild(addAll);
@@ -321,13 +352,23 @@
     return box;
   }
 
-  function section(title, nodes, extra) {
+  /** Two-column card grid (vidIQ-style) instead of one long vertical list. */
+  function section(title, items, opts) {
     const s = h("div", "bmt-ts-sec");
     const head = h("div", "bmt-ts-head");
     head.appendChild(h("span", null, title));
-    if (extra) head.appendChild(extra);
+    if (opts?.extra) head.appendChild(opts.extra);
     s.appendChild(head);
-    for (const n of nodes) s.appendChild(n);
+
+    const grid = h("div", "bmt-ts-grid");
+    if (!items.length) {
+      grid.appendChild(h("div", "bmt-ts-muted bmt-ts-wide", opts?.empty || "Nothing here yet."));
+    }
+    for (const item of items) {
+      for (const node of tagCard(item, opts?.card || {})) grid.appendChild(node);
+    }
+    s.appendChild(grid);
+    if (opts?.foot) s.appendChild(opts.foot);
     return s;
   }
 
@@ -408,7 +449,7 @@
     const tabs = [
       ["suggestions", `Suggestions (${report.suggestions.length})`],
       ["ranking", `From ranking videos (${report.fromRanking.length})`],
-      ["yours", `Your tags (${report.yours.length})`],
+      ["yours", `Your tags (${report.yours.length + report.weak.length})`],
       ["weak", `Weak (${report.weak.length})`],
     ];
     const bar = h("div", "bmt-ts-tabs");
@@ -429,11 +470,16 @@
         render();
       });
       panel.appendChild(
-        section(
-          "Tags people are searching now",
-          report.suggestions.map((x) => tagRow(x, { add: true })),
-          addAll
-        )
+        section("Tags people are searching now", report.suggestions, {
+          extra: addAll,
+          card: { add: true },
+          empty: "No on-topic tag with live demand right now.",
+          foot: h(
+            "div",
+            "bmt-ts-note",
+            "Only tags from this video's own topic are shown. % = live search-demand strength, rank = autocomplete position (proxy, not an official YouTube number)."
+          ),
+        })
       );
     } else if (openTab === "ranking") {
       const addAll = h("button", "bmt-ts-mini", "Add all that fit");
@@ -441,13 +487,6 @@
         addMany(report.fromRanking.map((x) => x.tag));
         render();
       });
-      panel.appendChild(
-        section(
-          "Tags the top-ranking videos use",
-          report.fromRanking.map((x) => tagRow(x, { add: true })),
-          addAll
-        )
-      );
       const comps = h("div", "bmt-ts-comps");
       for (const c of report.competitors.slice(0, 5)) {
         const a = h("a", "bmt-ts-vid", `${nice(c.views)} · ${c.channel} — ${c.title}`);
@@ -456,24 +495,32 @@
         a.rel = "noreferrer";
         comps.appendChild(a);
       }
-      panel.appendChild(comps);
+      panel.appendChild(
+        section("Tags the top-ranking videos use", report.fromRanking, {
+          extra: addAll,
+          card: { add: true },
+          empty: "The ranking videos hide their tags.",
+          foot: comps,
+        })
+      );
     } else if (openTab === "yours") {
       panel.appendChild(
-        section(
-          "Tags in the box, strongest first",
-          report.yours.length
-            ? report.yours.map((x) => tagRow(x, {}))
-            : [h("div", "bmt-ts-muted", "No tags with measurable search demand yet.")]
-        )
+        section("Tags in the box, strongest first", [...report.yours, ...report.weak], {
+          card: { remove: true },
+          empty: "No tags in the box yet — add some from Suggestions.",
+          foot: h(
+            "div",
+            "bmt-ts-note",
+            "Click any tag you already use to see its estimated searches, competition and 5 related tags you can add in one click."
+          ),
+        })
       );
     } else {
       panel.appendChild(
-        section(
-          "No measurable search demand — safe to drop",
-          report.weak.length
-            ? report.weak.map((x) => tagRow(x, { remove: true }))
-            : [h("div", "bmt-ts-muted", "Every tag in the box has search demand. 👍")]
-        )
+        section("No measurable search demand — safe to drop", report.weak, {
+          card: { remove: true },
+          empty: "Every tag in the box has search demand. 👍",
+        })
       );
     }
   }
