@@ -34,8 +34,14 @@
   }
 
   function chipText(chip) {
-    const node = chip.querySelector("#chip-text, .chip-text, span");
-    return (node?.textContent || chip.textContent || "").replace(/[✕✖×]\s*$/, "").trim();
+    const node = chip.querySelector("#chip-text, .chip-text, span") || chip;
+    // Skip our own score badge so the tag itself reads back unchanged.
+    let text = "";
+    for (const child of node.childNodes) {
+      if (child.nodeType === 1 && child.classList?.contains("bmt-native-score")) continue;
+      text += child.textContent || "";
+    }
+    return text.replace(/[✕✖×]\s*$/, "").trim();
   }
 
   function currentTags() {
@@ -261,6 +267,46 @@
     return chip;
   }
 
+  /**
+   * Paint the score straight onto YouTube's own tag chips, vidIQ-style, so the
+   * numbers sit on the tags already in the box. Clicking a badge opens that
+   * tag's drill-down (searches, competition, related tags) in the panel below.
+   */
+  function paintNativeChips() {
+    const scored = new Map();
+    if (report) {
+      for (const t of [...report.yours, ...report.weak]) scored.set(t.tag.toLowerCase(), t);
+    }
+    for (const chip of chips()) {
+      const tag = chipText(chip);
+      const item = scored.get(tag.toLowerCase());
+      const holder = chip.querySelector("#chip-text, .chip-text") || chip;
+      let badge = holder.querySelector(":scope > .bmt-native-score");
+      if (!item) {
+        badge?.remove();
+        continue;
+      }
+      if (!badge) {
+        badge = h("span", "bmt-native-score");
+        badge.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openTab = "yours";
+          openTag = openTag === tag ? null : tag;
+          if (openTag) loadInsight(openTag);
+          render();
+          document.getElementById("bmt-tagstudio")?.scrollIntoView({ block: "nearest" });
+        });
+        holder.insertBefore(badge, holder.firstChild);
+      }
+      badge.className = `bmt-native-score bmt-native-${band(item.score)}`;
+      badge.textContent = `${item.score}%`;
+      badge.title = item.rank
+        ? `${item.score}% search demand · rank #${item.rank} — click for related tags`
+        : `${item.score}% — no measurable search demand · click for related tags`;
+    }
+  }
+
   function insightBox(tag) {
     const box = h("div", "bmt-ts-insight");
     const data = insightCache.get(tag);
@@ -360,6 +406,7 @@
   function render(needsAuth) {
     const panel = mount();
     if (!panel) return;
+    paintNativeChips();
     panel.innerHTML = "";
 
     /* header */
@@ -527,6 +574,7 @@
       return;
     }
     if (!document.getElementById("bmt-tagstudio")) render();
+    else paintNativeChips();
   }
 
   setInterval(tick, 1500);
