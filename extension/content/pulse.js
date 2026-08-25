@@ -364,7 +364,7 @@
     wrap.appendChild(picker);
 
     const cat = cats.find((c) => c.id === viralCat);
-    const list = el("div", "bmt-list");
+    const list = el("div", "bmt-list bmt-list-long");
     cat.videos.forEach((v) => {
       const row = el("a", "bmt-row-link");
       row.href = v.url;
@@ -386,7 +386,9 @@
       row.appendChild(meta);
       list.appendChild(row);
     });
-    wrap.appendChild(section(`Rising now — ${cat.label}`, list));
+    wrap.appendChild(
+      section(`Rising now — ${cat.label} (${cat.videos.length})`, list)
+    );
 
     if (cat.topTags.length) {
       const chips = el("div", "bmt-chips");

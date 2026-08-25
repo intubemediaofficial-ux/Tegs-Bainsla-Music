@@ -178,9 +178,11 @@ html[dark] #bmt-strip .bmt-s-item,
   padding: 10px 12px;
   box-shadow: none;
 }
+/* Five equal columns so every tab stays on screen in YouTube's narrow column. */
 #bmt-pulse-panel .bmt-tabs {
-  display: flex;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
   background: #0a0a12;
   border: 1px solid #23233a;
   border-radius: 999px;
@@ -188,15 +190,18 @@ html[dark] #bmt-strip .bmt-s-item,
   margin-bottom: 4px;
 }
 #bmt-pulse-panel .bmt-tab {
-  flex: 1;
+  min-width: 0;
   border: 0;
   border-radius: 999px;
   background: none;
   color: #94a3b8;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
-  padding: 6px 2px;
-  letter-spacing: -0.1px;
+  padding: 6px 1px;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
   cursor: pointer;
 }
 #bmt-pulse-panel .bmt-tab-on {
@@ -204,8 +209,8 @@ html[dark] #bmt-strip .bmt-s-item,
   color: #fff;
 }
 #bmt-pulse-panel .bmt-story {
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.65;
   color: #e2e8f0;
   background: rgba(124, 58, 237, 0.14);
   border: 1px solid rgba(167, 139, 250, 0.35);
@@ -277,13 +282,15 @@ html[dark] #bmt-strip .bmt-s-item,
   background: linear-gradient(135deg, rgba(124, 58, 237, 0.22), rgba(219, 39, 119, 0.18));
   box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.45) inset;
 }
+/* Small enough to leave the realtime story room, big enough to judge the image. */
 #bmt-pulse-panel .bmt-thumb-shot {
   position: relative;
   line-height: 0;
+  max-width: 220px;
 }
 #bmt-pulse-panel .bmt-thumb img {
   width: 100%;
-  border-radius: 10px;
+  border-radius: 8px;
   display: block;
 }
 #bmt-pulse-panel .bmt-thumb-badge {
@@ -301,9 +308,9 @@ html[dark] #bmt-strip .bmt-s-item,
 #bmt-pulse-panel button.bmt-dl-big {
   display: block;
   width: 100%;
-  margin-top: 10px;
-  padding: 11px 14px;
-  font-size: 12.5px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 11.5px;
   box-shadow: 0 6px 18px rgba(124, 58, 237, 0.45);
 }
 #bmt-pulse-panel .bmt-thumb-sizes {
@@ -490,6 +497,12 @@ html[dark] #bmt-strip .bmt-s-item,
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+/* Long viral board: scrolls inside the panel instead of stretching the page. */
+#bmt-pulse-panel .bmt-list-long {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 #bmt-pulse-panel .bmt-row-link {
   display: flex;
@@ -694,61 +707,62 @@ html[dark] #bmt-tagstudio .bmt-ts-tab.bmt-ts-on {
   max-height: 560px;
   overflow: auto;
 }
-/* Two columns like vidIQ so the panel stays short instead of one long list. */
-#bmt-tagstudio .bmt-ts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 8px;
-  align-items: start;
-}
-#bmt-tagstudio .bmt-ts-wide {
-  grid-column: 1 / -1;
-}
-#bmt-tagstudio .bmt-ts-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: #fff;
-}
-html[dark] #bmt-tagstudio .bmt-ts-card {
-  background: #22222b;
-  border-color: #33333f;
-}
-#bmt-tagstudio .bmt-ts-card.bmt-ts-open {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 1px #6366f1 inset;
-}
-#bmt-tagstudio .bmt-ts-meta {
+/* Compact chips that flow 6-8 per line instead of one tag per row. */
+#bmt-tagstudio .bmt-ts-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 6px;
-}
-#bmt-tagstudio .bmt-ts-pill {
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11.5px;
-  font-weight: 600;
-  background: #eef2ff;
-  color: #3730a3;
-}
-html[dark] #bmt-tagstudio .bmt-ts-pill {
-  background: #2e2e3d;
-  color: #c7d2fe;
-}
-#bmt-tagstudio .bmt-ts-row {
-  display: flex;
+  gap: 4px;
   align-items: center;
-  gap: 8px;
-  padding: 3px 0;
+}
+#bmt-tagstudio .bmt-ts-tag {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #fff;
+  overflow: hidden;
+}
+html[dark] #bmt-tagstudio .bmt-ts-tag {
+  background: #22222b;
+  border-color: #3a3a48;
+}
+#bmt-tagstudio .bmt-ts-tag.bmt-ts-open {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 1px #6366f1;
+}
+#bmt-tagstudio .bmt-ts-tagbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+  cursor: pointer;
+  max-width: 220px;
+}
+#bmt-tagstudio .bmt-ts-tagbtn:hover .bmt-ts-name {
+  text-decoration: underline;
+}
+#bmt-tagstudio .bmt-ts-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#bmt-tagstudio .bmt-ts-rank {
+  font-size: 10.5px;
+  font-weight: 600;
+  opacity: 0.65;
 }
 #bmt-tagstudio .bmt-ts-score {
-  min-width: 42px;
   text-align: center;
   font-weight: 800;
-  font-size: 13px;
-  border-radius: 7px;
-  padding: 3px 6px;
+  font-size: 10.5px;
+  border-radius: 999px;
+  padding: 1px 5px;
   color: #fff;
 }
 #bmt-tagstudio .bmt-ts-hi {
@@ -760,36 +774,20 @@ html[dark] #bmt-tagstudio .bmt-ts-pill {
 #bmt-tagstudio .bmt-ts-lo {
   background: #dc2626;
 }
-#bmt-tagstudio .bmt-ts-name {
-  flex: 1;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.3;
-  cursor: pointer;
-  padding: 2px 0;
-}
-#bmt-tagstudio .bmt-ts-name:hover {
-  text-decoration: underline;
-}
 #bmt-tagstudio .bmt-ts-act {
-  border: 1px solid #d1d5db;
-  background: #fff;
-  border-radius: 8px;
-  width: 30px;
-  height: 30px;
-  font-size: 15px;
+  border: 0;
+  border-left: 1px solid #e5e7eb;
+  background: #f8fafc;
+  width: 20px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
-  color: #374151;
+  color: #4b5563;
 }
 html[dark] #bmt-tagstudio .bmt-ts-act {
-  background: #24242d;
-  border-color: #3f3f52;
-  color: #e5e7eb;
+  background: #2a2a34;
+  border-left-color: #3f3f52;
+  color: #cbd5e1;
 }
 #bmt-tagstudio .bmt-ts-insight {
   margin: 4px 0 10px;
