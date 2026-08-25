@@ -34,14 +34,8 @@
   }
 
   function chipText(chip) {
-    const node = chip.querySelector("#chip-text, .chip-text, span") || chip;
-    // Skip our own score badge so the tag itself reads back unchanged.
-    let text = "";
-    for (const child of node.childNodes) {
-      if (child.nodeType === 1 && child.classList?.contains("bmt-native-score")) continue;
-      text += child.textContent || "";
-    }
-    return text.replace(/[✕✖×]\s*$/, "").trim();
+    const node = chip.querySelector("#chip-text, .chip-text, span");
+    return (node?.textContent || chip.textContent || "").replace(/[✕✖×]\s*$/, "").trim();
   }
 
   function currentTags() {
@@ -267,43 +261,70 @@
     return chip;
   }
 
+  function openInsight(tag) {
+    openTab = "yours";
+    openTag = openTag === tag ? null : tag;
+    if (openTag) loadInsight(openTag);
+    render();
+  }
+
+  function badgeLayer() {
+    let layer = document.getElementById("bmt-chip-badges");
+    if (!layer) {
+      layer = h("div");
+      layer.id = "bmt-chip-badges";
+      document.body.appendChild(layer);
+    }
+    return layer;
+  }
+
   /**
-   * Paint the score straight onto YouTube's own tag chips, vidIQ-style, so the
-   * numbers sit on the tags already in the box. Clicking a badge opens that
-   * tag's drill-down (searches, competition, related tags) in the panel below.
+   * Score badges for the tags already in Studio's box, vidIQ-style. Studio's
+   * chips are custom elements that render their own text, so a badge injected
+   * into a chip can end up unslotted and invisible; instead the badges live in
+   * one layer of our own, pinned to each chip's top-left corner. Clicking one
+   * opens that tag's drill-down (searches, competition, related tags).
    */
   function paintNativeChips() {
+    const layer = badgeLayer();
     const scored = new Map();
     if (report) {
       for (const t of [...report.yours, ...report.weak]) scored.set(t.tag.toLowerCase(), t);
     }
-    for (const chip of chips()) {
-      const tag = chipText(chip);
-      const item = scored.get(tag.toLowerCase());
-      const holder = chip.querySelector("#chip-text, .chip-text") || chip;
-      let badge = holder.querySelector(":scope > .bmt-native-score");
-      if (!item) {
-        badge?.remove();
-        continue;
-      }
+
+    const alive = new Set();
+    chips().forEach((chip, index) => {
+      const item = scored.get(chipText(chip).toLowerCase());
+      if (!item) return;
+      const box = chip.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+
+      const key = String(index);
+      alive.add(key);
+      let badge = layer.querySelector(`[data-bmt-key="${key}"]`);
       if (!badge) {
-        badge = h("span", "bmt-native-score");
+        badge = h("button", "bmt-chip-badge");
+        badge.dataset.bmtKey = key;
         badge.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          openTab = "yours";
-          openTag = openTag === tag ? null : tag;
-          if (openTag) loadInsight(openTag);
-          render();
+          openInsight(badge.dataset.bmtTag);
           document.getElementById("bmt-tagstudio")?.scrollIntoView({ block: "nearest" });
         });
-        holder.insertBefore(badge, holder.firstChild);
+        layer.appendChild(badge);
       }
-      badge.className = `bmt-native-score bmt-native-${band(item.score)}`;
+      badge.dataset.bmtTag = item.tag;
+      badge.className = `bmt-chip-badge bmt-native-${band(item.score)}`;
       badge.textContent = `${item.score}%`;
       badge.title = item.rank
-        ? `${item.score}% search demand · rank #${item.rank} — click for related tags`
-        : `${item.score}% — no measurable search demand · click for related tags`;
+        ? `${item.tag} — ${item.score}% search demand, rank #${item.rank}. Click for related tags.`
+        : `${item.tag} — no measurable search demand. Click for related tags.`;
+      badge.style.left = `${box.left + window.scrollX - 3}px`;
+      badge.style.top = `${box.top + window.scrollY - 8}px`;
+    });
+
+    for (const badge of [...layer.children]) {
+      if (!alive.has(badge.dataset.bmtKey)) badge.remove();
     }
   }
 
@@ -338,8 +359,8 @@
     box.appendChild(stats);
 
     if (data.related?.length) {
-      box.appendChild(h("div", "bmt-ts-sub", `Related tags for "${tag}"`));
-      const picks = data.related.slice(0, 5);
+      const picks = data.related.slice(0, 24);
+      box.appendChild(h("div", "bmt-ts-sub", `Related tags for "${tag}" (${picks.length})`));
       const chipsWrap = h("div", "bmt-ts-chips");
       for (const r of picks) {
         const c = h("button", `bmt-ts-chip bmt-ts-${band(r.score)}b`);
@@ -543,7 +564,7 @@
           foot: h(
             "div",
             "bmt-ts-note",
-            "Click any tag you already use to see its estimated searches, competition and 5 related tags you can add in one click."
+            "Click any tag you already use to see its estimated searches, competition and every related tag you can add in one click."
           ),
         })
       );
@@ -561,7 +582,10 @@
 
   let lastKey = "";
   function tick() {
-    if (!chipBar()) return;
+    if (!chipBar()) {
+      document.getElementById("bmt-chip-badges")?.remove();
+      return;
+    }
     // Keyed on the video, not the title text: typing in the title box must not
     // fire a fresh research call (and burn quota) on every keystroke.
     const key = location.pathname;
@@ -576,6 +600,11 @@
     if (!document.getElementById("bmt-tagstudio")) render();
     else paintNativeChips();
   }
+
+  // The badges are pinned to chip positions, so any scroll or resize has to
+  // move them with the chips.
+  addEventListener("scroll", () => paintNativeChips(), true);
+  addEventListener("resize", () => paintNativeChips());
 
   setInterval(tick, 1500);
   tick();

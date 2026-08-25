@@ -24,6 +24,9 @@ import { scoreKeyword, scoreTitle } from "./scoring";
 import type { VideoLite } from "./types";
 
 const DEVANAGARI = /[\u0900-\u097F]/;
+
+/** How many related tags a clicked keyword should come back with. */
+const RELATED_TARGET = 24;
 export const TAG_BOX_LIMIT = 500;
 
 export interface ScoredTag {
@@ -429,7 +432,7 @@ export async function keywordInsight(
   const k = keyword.trim();
 
   const [universe, videos, direct] = await Promise.all([
-    expandKeywords(k, hl, gl, DEVANAGARI.test(k) ? 8 : 14),
+    expandKeywords(k, hl, gl, DEVANAGARI.test(k) ? 12 : 20),
     searchVideos(k, hl, gl, 12),
     getSuggestions(k, hl, gl),
   ]);
@@ -441,19 +444,22 @@ export async function keywordInsight(
   const onTopic = makeTopicFilter([k, opts.context ?? ""]);
   const related: ScoredTag[] = [];
   const seen = new Set([k.toLowerCase()]);
-  const collect = (topicOnly: boolean, max: number) => {
+  const collect = (keep: (tag: string) => boolean) => {
     for (const list of [direct, universe]) {
       list.forEach((u, i) => {
         const n = u.trim().toLowerCase();
-        if (related.length >= max || !n || seen.has(n) || !isUsefulTag(n) || !relevant(n)) return;
-        if (topicOnly && !onTopic(n)) return;
+        if (related.length >= RELATED_TARGET || !n || seen.has(n) || !isUsefulTag(n)) return;
+        if (!keep(n)) return;
         seen.add(n);
         related.push({ tag: n, score: rankScore(i + 1), rank: i + 1, source: "search" });
       });
     }
   };
-  collect(true, 20);
-  if (!related.length) collect(false, 8);
+  // Widen in steps: the closest variations first, then anything still inside
+  // the video's topic, so a clicked tag always comes back with a full set.
+  collect((n) => relevant(n) && onTopic(n));
+  collect(onTopic);
+  collect(relevant);
 
   const avgTopViews =
     videos.length > 0
