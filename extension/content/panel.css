@@ -741,7 +741,7 @@ html[dark] #bmt-tagstudio .bmt-ts-tag {
   font-size: 13px;
   padding: 3px 8px;
   cursor: pointer;
-  max-width: 230px;
+  max-width: 170px;
   -webkit-font-smoothing: antialiased;
 }
 #bmt-tagstudio .bmt-ts-tagbtn:hover .bmt-ts-name {
@@ -781,33 +781,42 @@ html[dark] #bmt-tagstudio .bmt-ts-rank {
   background: #b91c1c;
 }
 
-/* Score badge painted straight onto YouTube's own tag chips. */
-ytcp-chip .bmt-native-score {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 6px;
-  padding: 0 6px;
+/* Score badges pinned over the tag chips already in Studio's Tags box. */
+#bmt-chip-badges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2147483000;
+}
+#bmt-chip-badges .bmt-chip-badge {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 999px;
+  padding: 0 6px;
   font-family: Roboto, Arial, sans-serif;
   font-size: 11px;
   font-weight: 800;
-  line-height: 17px;
-  color: #fff;
+  line-height: 16px;
   letter-spacing: 0.2px;
-  -webkit-font-smoothing: antialiased;
-  flex: none;
+  color: #fff;
   cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
+  -webkit-font-smoothing: antialiased;
 }
-ytcp-chip .bmt-native-score:hover {
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+#bmt-chip-badges .bmt-chip-badge:hover {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.7);
 }
-ytcp-chip .bmt-native-hi {
+#bmt-chip-badges .bmt-native-hi {
   background: #15803d;
 }
-ytcp-chip .bmt-native-mid {
+#bmt-chip-badges .bmt-native-mid {
   background: #b45309;
 }
-ytcp-chip .bmt-native-lo {
+#bmt-chip-badges .bmt-native-lo {
   background: #b91c1c;
 }
 #bmt-tagstudio .bmt-ts-act {
