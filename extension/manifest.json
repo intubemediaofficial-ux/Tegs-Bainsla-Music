@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bainsla Music Tags — YouTube Tag, Title & Trend Studio",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "Scored tags inside YouTube Studio, tag research on click, ranked tags, hashtags and a live 60-min/48-hour view pulse.",
   "action": {
     "default_title": "Bainsla Music Tags",

@@ -359,8 +359,8 @@
     box.appendChild(stats);
 
     if (data.related?.length) {
-      box.appendChild(h("div", "bmt-ts-sub", `Related tags for "${tag}"`));
-      const picks = data.related.slice(0, 5);
+      const picks = data.related.slice(0, 24);
+      box.appendChild(h("div", "bmt-ts-sub", `Related tags for "${tag}" (${picks.length})`));
       const chipsWrap = h("div", "bmt-ts-chips");
       for (const r of picks) {
         const c = h("button", `bmt-ts-chip bmt-ts-${band(r.score)}b`);
@@ -564,7 +564,7 @@
           foot: h(
             "div",
             "bmt-ts-note",
-            "Click any tag you already use to see its estimated searches, competition and 5 related tags you can add in one click."
+            "Click any tag you already use to see its estimated searches, competition and every related tag you can add in one click."
           ),
         })
       );
