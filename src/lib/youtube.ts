@@ -692,12 +692,16 @@ export async function rankTags(
   const onTopic = (u: string) =>
     context.size === 0 || topicWords(u).some((w) => context.has(w));
 
+  const overlap = (u: string) => topicWords(u).filter((w) => context.has(w)).length;
   const suggestions: RankedTag[] = [];
   for (let i = 0; i < universe.length && suggestions.length < 15; i++) {
     const u = universe[i];
     if (usedNorms.has(u) || !isUsefulTag(u) || !onTopic(u)) continue;
     suggestions.push({ tag: u, rank: i + 1 });
   }
+  // Tags that carry more of this video's own words first — a shared category
+  // word alone is a weaker match than "gurjar rasiya bhanwar".
+  suggestions.sort((a, b) => overlap(b.tag) - overlap(a.tag) || a.rank - b.rank);
 
   return { trending, notTrending, suggestions };
 }

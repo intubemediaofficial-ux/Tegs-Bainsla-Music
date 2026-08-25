@@ -158,19 +158,21 @@ async function computeSnapshot(
   label: string,
   query: string
 ): Promise<TrendingSnapshot> {
-  // Ask YouTube for *recent* uploads only (this week + this month) so the board
-  // moves every day instead of pinning one old hit forever.
-  const [thisWeek, thisMonth] = await Promise.all([
-    searchVideos(query, "en", "IN", 25, { recentDays: 7 }),
-    searchVideos(query, "en", "IN", 25, { recentDays: 30 }),
+  // Ask YouTube for *recent* uploads only so the board moves every day instead
+  // of pinning one old hit forever. Three windows keep a category board dozens
+  // of videos deep rather than a handful.
+  const [today, thisWeek, thisMonth] = await Promise.all([
+    searchVideos(query, "en", "IN", 50, { recentDays: 1 }),
+    searchVideos(query, "en", "IN", 50, { recentDays: 7 }),
+    searchVideos(query, "en", "IN", 50, { recentDays: 30 }),
   ]);
   const byId = new Map<string, VideoLite>();
-  for (const v of [...thisWeek, ...thisMonth]) {
+  for (const v of [...today, ...thisWeek, ...thisMonth]) {
     if (!byId.has(v.videoId)) byId.set(v.videoId, v);
   }
   let videos = [...byId.values()];
   // Nothing recent found (blocked scrape / niche query) — fall back to all-time.
-  if (videos.length === 0) videos = await searchVideos(query, "en", "IN", 25);
+  if (videos.length === 0) videos = await searchVideos(query, "en", "IN", 50);
 
   // Fresh, accurate view counts from the official API (cheap, one batched call).
   const channelIdOf = new Map<string, string>();
@@ -239,7 +241,7 @@ async function computeSnapshot(
     label,
     query,
     updatedAt: new Date().toISOString(),
-    videos: trending.slice(0, 20),
+    videos: trending.slice(0, 60),
     insight: {
       topTags,
       topHashtags: hashtags,

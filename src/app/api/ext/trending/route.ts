@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
           recommendation: s.insight.recommendation,
           topTags: s.insight.topTags.slice(0, 12).map((t) => t.tag),
           hashtags: s.insight.topHashtags.slice(0, 10).map((h) => h.tag),
-          videos: s.videos.slice(0, 6).map((v) => ({
+          videos: s.videos.slice(0, 50).map((v) => ({
             videoId: v.videoId,
             title: v.title,
             channel: v.channel,

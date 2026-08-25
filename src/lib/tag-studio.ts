@@ -90,6 +90,13 @@ function makeTopicFilter(context: string[]) {
     words.size === 0 || topicWords(candidate).some((w) => words.has(w));
 }
 
+/** How many of the video's own topic words a candidate shares (0 = off topic). */
+function makeTopicOverlap(context: string[]) {
+  const words = new Set(topicWords(context.filter(Boolean).join(" ")));
+  return (candidate: string): number =>
+    topicWords(candidate).filter((w) => words.has(w)).length;
+}
+
 function normalise(list: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -277,30 +284,42 @@ export async function tagStudioReport(
 
   const relevant = makeRelevance([seed || title, ...mine.slice(0, 3)]);
   const onTopic = makeTopicFilter([title, ...mine]);
+  const overlap = makeTopicOverlap([title, ...mine]);
+  // Words the videos that already rank use: a suggestion carrying them is both
+  // on topic and proven, so it goes to the front of the list.
+  const provenWords = new Set(topicWords(rankingTags.join(" ")));
+  const proven = (candidate: string): boolean =>
+    topicWords(candidate).some((w) => provenWords.has(w));
+
   const suggestions: ScoredTag[] = [];
+  const pick = (u: string, i: number) => {
+    used.add(u);
+    suggestions.push({
+      tag: u,
+      // Live demand first, then how much of this video's topic the tag carries.
+      score: clamp(rankScore(i + 1) + Math.min(3, overlap(u)) * 4 + (proven(u) ? 6 : 0)),
+      rank: i + 1,
+      source: "search",
+    });
+  };
+
   universe.forEach((u, i) => {
     if (suggestions.length >= 25) return;
     if (used.has(u) || !isUsefulTag(u) || u.length > 60 || !relevant(u) || !onTopic(u)) return;
-    used.add(u);
-    suggestions.push({ tag: u, score: rankScore(i + 1), rank: i + 1, source: "search" });
+    pick(u, i);
   });
-  // Long or fully Devanagari titles can filter down to almost nothing; relax the
-  // checks one step at a time rather than showing an empty list.
-  for (const relax of ["seed", "topic"] as const) {
-    if (suggestions.length >= 12) break;
-    universe.forEach((u, i) => {
-      if (suggestions.length >= 12) return;
-      if (used.has(u) || !isUsefulTag(u) || u.length > 60) return;
-      if (relax === "seed" ? !onTopic(u) : !relevant(u)) return;
-      used.add(u);
-      suggestions.push({ tag: u, score: rankScore(i + 1), rank: i + 1, source: "search" });
-    });
-    suggestions.sort((a, b) => b.score - a.score);
-  }
+  // A long or fully Devanagari title can filter down to almost nothing. Drop the
+  // seed-shape check then, but never the topic check — off-topic tags are noise.
+  universe.forEach((u, i) => {
+    if (suggestions.length >= 12) return;
+    if (used.has(u) || !isUsefulTag(u) || u.length > 60 || !onTopic(u)) return;
+    pick(u, i);
+  });
+  suggestions.sort((a, b) => b.score - a.score);
 
   const rankingPicks: string[] = [];
   for (const topicOnly of [true, false]) {
-    if (rankingPicks.length >= 8) break;
+    if (rankingPicks.length) break;
     for (const tag of rankingTags) {
       if (rankingPicks.length >= 20) break;
       const n = tag.toLowerCase();
@@ -434,7 +453,7 @@ export async function keywordInsight(
     }
   };
   collect(true, 20);
-  if (related.length < 5) collect(false, 8);
+  if (!related.length) collect(false, 8);
 
   const avgTopViews =
     videos.length > 0

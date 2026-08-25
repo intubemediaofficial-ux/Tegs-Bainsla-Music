@@ -220,25 +220,25 @@
   }
 
   /**
-   * One tag card for the two-column grid. Returns the card plus, when the tag is
-   * open, a full-width drill-down that sits right under it.
+   * One compact tag chip: score %, the tag, its rank and an add/remove action.
+   * The whole chip (not just the text) opens the drill-down, so a click on the
+   * percentage works too.
    */
-  function tagCard(item, opts) {
-    const card = h("div", `bmt-ts-card${openTag === item.tag ? " bmt-ts-open" : ""}`);
+  function tagChip(item, opts) {
+    const chip = h("span", `bmt-ts-tag${openTag === item.tag ? " bmt-ts-open" : ""}`);
 
-    const top = h("div", "bmt-ts-row");
+    const open = h("button", "bmt-ts-tagbtn");
+    open.title = "Click for searches, competition and related tags";
     const score = h("span", `bmt-ts-score bmt-ts-${band(item.score)}`, `${item.score}%`);
-    score.title = "Search-demand strength (0-100%) from live YouTube autocomplete";
-    top.appendChild(score);
-
-    const name = h("button", "bmt-ts-name", item.tag);
-    name.title = "Click for searches, competition and related tags";
-    name.addEventListener("click", () => {
+    open.appendChild(score);
+    open.appendChild(h("span", "bmt-ts-name", item.tag));
+    open.appendChild(h("span", "bmt-ts-rank", item.rank ? `#${item.rank}` : "—"));
+    open.addEventListener("click", () => {
       openTag = openTag === item.tag ? null : item.tag;
       if (openTag) loadInsight(openTag);
       render();
     });
-    top.appendChild(name);
+    chip.appendChild(open);
 
     if (opts?.add) {
       const add = h("button", "bmt-ts-act", "+");
@@ -247,7 +247,7 @@
         addMany([item.tag]);
         render();
       });
-      top.appendChild(add);
+      chip.appendChild(add);
     }
     if (opts?.remove) {
       const del = h("button", "bmt-ts-act", "✕");
@@ -256,27 +256,9 @@
         removeTag(item.tag);
         setTimeout(render, 200);
       });
-      top.appendChild(del);
+      chip.appendChild(del);
     }
-    card.appendChild(top);
-
-    const meta = h("div", "bmt-ts-meta");
-    const rank = h("span", "bmt-ts-pill", item.rank ? `Rank #${item.rank}` : "No live demand");
-    rank.title = "Position in live autocomplete demand (proxy, not an official YouTube rank)";
-    meta.appendChild(rank);
-    const cached = insightCache.get(item.tag);
-    if (cached && !cached.error) {
-      const vol = h("span", "bmt-ts-pill", `${nice(cached.monthlySearches)}/mo est.`);
-      vol.title = "Estimated monthly searches";
-      meta.appendChild(vol);
-      meta.appendChild(h("span", "bmt-ts-pill", `${cached.competitionLabel} competition`));
-    }
-    card.appendChild(meta);
-
-    if (openTag !== item.tag) return [card];
-    const drill = insightBox(item.tag);
-    drill.classList.add("bmt-ts-wide");
-    return [card, drill];
+    return chip;
   }
 
   function insightBox(tag) {
@@ -352,7 +334,10 @@
     return box;
   }
 
-  /** Two-column card grid (vidIQ-style) instead of one long vertical list. */
+  /**
+   * Chips flow several per line (vidIQ-style); the open tag's drill-down is
+   * appended once, under the whole block, so the chip rows stay intact.
+   */
   function section(title, items, opts) {
     const s = h("div", "bmt-ts-sec");
     const head = h("div", "bmt-ts-head");
@@ -360,14 +345,14 @@
     if (opts?.extra) head.appendChild(opts.extra);
     s.appendChild(head);
 
-    const grid = h("div", "bmt-ts-grid");
+    const wrap = h("div", "bmt-ts-wrap");
     if (!items.length) {
-      grid.appendChild(h("div", "bmt-ts-muted bmt-ts-wide", opts?.empty || "Nothing here yet."));
+      wrap.appendChild(h("div", "bmt-ts-muted", opts?.empty || "Nothing here yet."));
     }
-    for (const item of items) {
-      for (const node of tagCard(item, opts?.card || {})) grid.appendChild(node);
-    }
-    s.appendChild(grid);
+    for (const item of items) wrap.appendChild(tagChip(item, opts?.card || {}));
+    s.appendChild(wrap);
+
+    if (openTag && items.some((i) => i.tag === openTag)) s.appendChild(insightBox(openTag));
     if (opts?.foot) s.appendChild(opts.foot);
     return s;
   }
