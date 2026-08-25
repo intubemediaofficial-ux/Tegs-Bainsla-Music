@@ -27,6 +27,7 @@ const schema = z.union([
   z.object({
     action: z.literal("keyword"),
     keyword: z.string().min(1).max(120),
+    context: z.string().max(1200).optional(),
     hl: z.string().max(8).optional(),
     gl: z.string().max(8).optional(),
   }),
@@ -51,7 +52,11 @@ export async function POST(req: NextRequest) {
 
   try {
     if (body.action === "keyword") {
-      const data = await keywordInsight(body.keyword, { hl: body.hl, gl: body.gl });
+      const data = await keywordInsight(body.keyword, {
+        hl: body.hl,
+        gl: body.gl,
+        context: body.context,
+      });
       return withCors(json(data));
     }
 

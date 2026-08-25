@@ -146,7 +146,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === "keywordInsight") {
-    tagStudio({ action: "keyword", keyword: msg.keyword }).then(sendResponse);
+    tagStudio({ action: "keyword", keyword: msg.keyword, context: msg.context }).then(sendResponse);
     return true;
   }
   if (msg?.type === "trending") {

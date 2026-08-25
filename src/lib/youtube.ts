@@ -83,7 +83,7 @@ const GENERIC_WORDS = new Set([
   "and",
 ]);
 
-function topicWords(phrase: string): string[] {
+export function topicWords(phrase: string): string[] {
   return phrase
     .toLowerCase()
     .split(/\s+/)
@@ -92,7 +92,7 @@ function topicWords(phrase: string): string[] {
 }
 
 /** No topic word at all: pure category phrase such as "dj song" or "ladies dance". */
-function isGenericPhrase(phrase: string): boolean {
+export function isGenericPhrase(phrase: string): boolean {
   return topicWords(phrase).length === 0;
 }
 
