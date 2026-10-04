@@ -7,6 +7,7 @@ import {
   searchVideos,
   generateHashtags,
   titleKeywordCounts,
+  topicWords,
   DEFAULT_YT_TAGS,
 } from "./youtube";
 import {
@@ -95,11 +96,13 @@ function toTrending(videos: VideoLite[], windowDays = TREND_WINDOW_DAYS): Trendi
   const maxVel = Math.max(1, ...enriched.map((v) => v.velocity));
   for (const v of enriched) {
     // Blend raw velocity (log-scaled) with recency: newer + faster = more viral.
-    const velScore = Math.min(100, (Math.log10(v.velocity + 1) / Math.log10(maxVel + 1)) * 100);
+    // Velocity carries 75 points and recency 25, so only the genuinely fastest
+    // fresh upload reaches 100 instead of half the board tying at 100.
+    const velScore = (Math.log10(v.velocity + 1) / Math.log10(maxVel + 1)) * 75;
     // This week's uploads are what "trending now" means, so they outrank a
     // three-week-old video with similar velocity.
     const recencyBoost =
-      v.ageHours <= 48 ? 30 : v.ageHours <= 24 * 7 ? 20 : v.ageHours <= 24 * 30 ? 5 : 0;
+      v.ageHours <= 48 ? 25 : v.ageHours <= 24 * 7 ? 15 : v.ageHours <= 24 * 30 ? 4 : 0;
     v.viralScore = Math.round(Math.min(100, velScore + recencyBoost));
   }
   return enriched.sort((a, b) => b.viralScore - a.viralScore);
@@ -151,6 +154,74 @@ function extractHashtags(titles: string[]): { tag: string; count: number }[] {
     .sort((a, b) => b.count - a.count);
 }
 
+/* ------------------------------- relevance -------------------------------- */
+
+/** Same-meaning spellings a category word shows up as in titles and tags. */
+const TOPIC_ALIASES: Record<string, string[]> = {
+  bhajan: ["भजन", "bhakti", "भक्ति", "aarti", "आरती", "kirtan", "कीर्तन", "devotional", "bhajans"],
+  devotional: ["bhajan", "भजन", "bhakti", "भक्ति", "aarti", "आरती", "kirtan", "कीर्तन"],
+  haryanvi: ["हरियाणवी", "haryanavi", "hariyanvi", "हरयाणवी"],
+  rajasthani: ["राजस्थानी", "marwadi", "मारवाड़ी", "marwari", "rajsthani"],
+  rasiya: ["रसिया", "rashiya"],
+  gurjar: ["गुर्जर", "gujjar", "गूजर"],
+  remix: ["dj", "डीजे", "remixes"],
+};
+
+/** Uploads a music board should never show even when the title name-drops it. */
+const NOT_MUSIC =
+  /short\s*film|comedy|कॉमेडी|web\s*series|\bnews\b|न्यूज़|vlog|podcast|prank|natak|नाटक|movie|फिल्म|interview/i;
+const MUSIC_QUERY = /song|music|bhajan|rasiya|remix|dj|gana|geet|kirtan|aarti/i;
+
+/**
+ * Keep only videos that are really about the category: the title, channel or
+ * the video's own tags must carry one of the query's topic words (or a known
+ * spelling of it). Falls back to the unfiltered list when that leaves the board
+ * nearly empty, so a niche category still shows something.
+ */
+function onCategory(
+  query: string,
+  videos: VideoLite[],
+  tagsOf: Map<string, string[]>
+): VideoLite[] {
+  const words = topicWords(query);
+  const needles = new Set<string>();
+  for (const w of words) {
+    needles.add(w);
+    for (const a of TOPIC_ALIASES[w] ?? []) needles.add(a.toLowerCase());
+  }
+  const music = MUSIC_QUERY.test(query);
+  const keep = videos.filter((v) => {
+    const hay = `${v.title} ${v.channel} ${(tagsOf.get(v.videoId) ?? []).join(" ")}`.toLowerCase();
+    if (music && NOT_MUSIC.test(v.title)) return false;
+    return needles.size === 0 || [...needles].some((n) => hay.includes(n));
+  });
+  return keep.length >= 10 ? keep : videos;
+}
+
+/**
+ * The same song re-uploaded by several channels (or as a dozen Shorts) would
+ * fill the top of the board with one hit. Keep its best-scoring upload only.
+ */
+function oneUploadPerSong(videos: TrendingVideo[]): TrendingVideo[] {
+  const seen = new Set<string>();
+  const out = videos.filter((v) => {
+    const key = v.title
+      .toLowerCase()
+      .replace(/#[\p{L}\p{N}_]+/gu, " ")
+      .split(/[|•\-–(\[]/)[0]
+      .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 4)
+      .join(" ");
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return out.length >= 12 ? out : videos;
+}
+
 /* ------------------------------- refresh ---------------------------------- */
 
 async function computeSnapshot(
@@ -176,6 +247,7 @@ async function computeSnapshot(
 
   // Fresh, accurate view counts from the official API (cheap, one batched call).
   const channelIdOf = new Map<string, string>();
+  const tagsOf = new Map<string, string[]>();
   if (hasYouTubeApiKey()) {
     const details = await fetchVideoDetails(videos.map((v) => v.videoId));
     for (const v of videos) {
@@ -183,20 +255,23 @@ async function computeSnapshot(
       if (d && d.views > 0) v.views = d.views;
       if (d?.publishedAt) v.publishedText = isoAge(d.publishedAt);
       if (d?.channelId) channelIdOf.set(v.videoId, d.channelId);
+      if (d?.tags?.length) tagsOf.set(v.videoId, d.tags);
     }
   }
+  videos = onCategory(query, videos, tagsOf);
   // Keep a board even when everything found is older than the trend window.
   const recent = toTrending(videos);
-  const trending = recent.length > 0 ? recent : toTrending(videos, 3650);
-  const risers = trending.slice(0, 8);
+  const trending = oneUploadPerSong(recent.length > 0 ? recent : toTrending(videos, 3650));
+  // Every video on the board gets a "why viral" label, not just the top few.
+  const risers = trending.slice(0, 24);
 
   // Why-viral: aggregate real tags across the fastest-rising videos.
   const tagCounts = new Map<string, number>();
-  const tagsOf = new Map<string, string[]>();
   await Promise.all(
-    risers.map(async (v) => {
-      const tags = await getVideoTags(v.videoId);
+    risers.map(async (v, i) => {
+      const tags = tagsOf.get(v.videoId) ?? (i < 8 ? await getVideoTags(v.videoId) : []);
       tagsOf.set(v.videoId, tags);
+      if (i >= 8) return;
       for (const tag of tags.slice(0, 30)) {
         const norm = tag.toLowerCase().trim();
         if (norm && !DEFAULT_YT_TAGS.has(norm)) {
@@ -212,7 +287,7 @@ async function computeSnapshot(
 
   await attachWhy(risers, tagsOf, topTags.map((t) => t.tag), channelIdOf);
 
-  const titles = risers.map((v) => v.title);
+  const titles = risers.slice(0, 8).map((v) => v.title);
   const topHashtags = extractHashtags(titles).slice(0, 15);
   const titleWords = titleKeywordCounts(titles).slice(0, 12);
 
@@ -367,5 +442,24 @@ export async function getFreshSnapshots(): Promise<TrendingSnapshot[]> {
       if (existing) out.push(existing);
     }
   }
-  return out.sort((a, b) => a.label.localeCompare(b.label));
+  return dedupeAcrossBoards(out.sort((a, b) => a.label.localeCompare(b.label)));
+}
+
+/**
+ * Overlapping categories ("Haryanvi Music" vs "Haryanvi DJ Remix") would show
+ * the same hit on every board. Show each video only on the board where it
+ * scores best, as long as every board keeps a useful depth.
+ */
+function dedupeAcrossBoards(snaps: TrendingSnapshot[]): TrendingSnapshot[] {
+  const home = new Map<string, { idx: number; score: number }>();
+  snaps.forEach((s, idx) => {
+    for (const v of s.videos) {
+      const prev = home.get(v.videoId);
+      if (!prev || v.viralScore > prev.score) home.set(v.videoId, { idx, score: v.viralScore });
+    }
+  });
+  return snaps.map((s, idx) => {
+    const own = s.videos.filter((v) => home.get(v.videoId)?.idx === idx);
+    return own.length >= 12 ? { ...s, videos: own } : s;
+  });
 }

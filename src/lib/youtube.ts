@@ -203,20 +203,25 @@ export async function expandKeywords(
 
   const results = await Promise.all(probes.map((p) => getSuggestions(p, hl, gl)));
 
-  const seen = new Set<string>();
-  const out: string[] = [];
-  // Always keep the seed first.
-  seen.add(base);
-  out.push(base);
-  for (const list of results) {
-    for (const s of list) {
+  // Rank by demand, not by probe order: a phrase YouTube offers for the bare
+  // seed (or under several probes) is searched far more than one that only
+  // shows up deep inside "seed a" / "seed b" — otherwise the list comes out
+  // alphabetical ("seed aadami", "seed acche", …) instead of by popularity.
+  const demand = new Map<string, number>();
+  results.forEach((list, probeIndex) => {
+    const weight = probeIndex === 0 ? 4 : probes[probeIndex].startsWith(base) ? 1 : 1.5;
+    list.forEach((s, pos) => {
       const norm = s.trim().toLowerCase();
-      if (!norm || seen.has(norm)) continue;
-      seen.add(norm);
-      out.push(norm);
-    }
-  }
-  return out;
+      if (!norm || norm === base) return;
+      demand.set(norm, (demand.get(norm) ?? 0) + weight / (1 + pos * 0.35));
+    });
+  });
+  const ranked = [...demand.entries()]
+    .map(([kw, d], order) => ({ kw, d, order }))
+    .sort((a, b) => b.d - a.d || a.order - b.order)
+    .map((x) => x.kw);
+  // Always keep the seed first.
+  return [base, ...ranked];
 }
 
 /* --------------------------------- search --------------------------------- */
