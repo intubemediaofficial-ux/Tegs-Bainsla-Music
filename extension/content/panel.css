@@ -939,3 +939,61 @@ html[dark] #bmt-tagstudio .bmt-ts-chip {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+#bmt-tagstudio .bmt-ts-head .bmt-ts-cta {
+  margin-left: auto;
+}
+#bmt-tagstudio .bmt-ts-sec + .bmt-ts-sec {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+html[dark] #bmt-tagstudio .bmt-ts-sec + .bmt-ts-sec {
+  border-top-color: #33333f;
+}
+#bmt-tagstudio .bmt-ts-na {
+  background: #64748b;
+}
+#bmt-tagstudio .bmt-ts-seo {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 11.5px;
+  color: #fff;
+}
+#bmt-tagstudio .bmt-ts-chip.bmt-ts-done {
+  cursor: default;
+  opacity: 0.6;
+  border-style: dashed;
+}
+#bmt-tagstudio .bmt-ts-chip.bmt-ts-done .bmt-ts-cadd {
+  color: #16a34a;
+}
+#bmt-tagstudio .bmt-ts-chip:not(.bmt-ts-done):hover {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45);
+}
+#bmt-tagstudio .bmt-ts-form {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+#bmt-tagstudio .bmt-ts-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  background: #fff;
+  color: inherit;
+}
+html[dark] #bmt-tagstudio .bmt-ts-input {
+  background: #23232b;
+  border-color: #3f3f52;
+}
+#bmt-tagstudio .bmt-ts-gauge .bmt-ts-mini {
+  margin-left: auto;
+}
+.bmt-chip-badge {
+  white-space: nowrap;
+}

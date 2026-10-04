@@ -12,8 +12,10 @@
   let report = null;
   let status = "";
   let openTag = null;
-  let openTab = "yours";
   let busy = false;
+  let refreshedAt = 0;
+  /** Tags this panel put into the box, so their badge shows a ✓. */
+  const addedByUs = new Set();
 
   /* ------------------------------ Studio DOM ------------------------------ */
 
@@ -100,6 +102,7 @@
       if (len + cost > LIMIT) break;
       if (!addTag(n)) break;
       used.add(n.toLowerCase());
+      addedByUs.add(n.toLowerCase());
       len += cost;
       added += 1;
     }
@@ -132,6 +135,7 @@
   }
 
   function band(score) {
+    if (score == null) return "na";
     return score >= 60 ? "hi" : score >= 35 ? "mid" : "lo";
   }
 
@@ -156,7 +160,7 @@
 
   /* --------------------------------- data --------------------------------- */
 
-  async function loadReport() {
+  async function loadReport(manual) {
     const title = detectTitle();
     if (!title) {
       status = "Open a video's details page to research its tags.";
@@ -180,6 +184,10 @@
     }
     report = resp.data;
     status = "";
+    if (manual === true) {
+      refreshedAt = Date.now();
+      setTimeout(render, 2600);
+    }
     render();
   }
 
@@ -219,50 +227,98 @@
     return panel;
   }
 
-  /**
-   * One compact tag chip: score %, the tag, its rank and an add/remove action.
-   * The whole chip (not just the text) opens the drill-down, so a click on the
-   * percentage works too.
-   */
-  function tagChip(item, opts) {
-    const chip = h("span", `bmt-ts-tag${openTag === item.tag ? " bmt-ts-open" : ""}`);
+  /* ------------------------------ tag scores ------------------------------ */
 
+  /** Every score we know for a tag: the report, related tags, drill-downs. */
+  function scoreBook() {
+    const book = new Map();
+    const put = (t) => {
+      const n = t.tag.toLowerCase();
+      if (!book.has(n)) book.set(n, t);
+    };
+    if (report) {
+      [...report.yours, ...report.weak].forEach(put);
+      [...report.suggestions, ...report.fromRanking].forEach(put);
+    }
+    for (const data of insightCache.values()) {
+      if (data && !data.error) {
+        if (Number.isFinite(data.score)) put({ tag: data.keyword, score: data.score, rank: null });
+        (data.related || []).forEach(put);
+      }
+    }
+    return book;
+  }
+
+  function inBox() {
+    return new Set(currentTags().map((t) => t.toLowerCase()));
+  }
+
+  /** Better tags not chosen yet (plus the ones just added, shown ticked). */
+  function recommended() {
+    if (!report) return [];
+    const seen = new Set();
+    const own = new Set(
+      [...report.yours, ...report.weak].map((t) => t.tag.toLowerCase())
+    );
+    return [...report.suggestions, ...report.fromRanking]
+      .filter((t) => {
+        const n = t.tag.toLowerCase();
+        if (seen.has(n) || own.has(n)) return false;
+        seen.add(n);
+        return true;
+      })
+      .sort((a, b) => b.score - a.score);
+  }
+
+  function addWithFeedback(tags) {
+    const added = addMany(tags);
+    if (!added && tags.some((t) => !inBox().has(t.toLowerCase()))) {
+      status = "Tag box is full (500 characters). Remove a weak tag first.";
+    } else {
+      status = "";
+    }
+    setTimeout(render, 250);
+    return added;
+  }
+
+  /** A suggestion chip: score %, tag, and + (adds to the box) or ✓ (already in). */
+  function addChip(item, box) {
+    const done = box.has(item.tag.toLowerCase());
+    const c = h("button", `bmt-ts-chip bmt-ts-${band(item.score)}b${done ? " bmt-ts-done" : ""}`);
+    c.appendChild(h("span", `bmt-ts-cscore bmt-ts-${band(item.score)}`, `${item.score}%`));
+    c.appendChild(h("span", "bmt-ts-ctext", item.tag));
+    c.appendChild(h("span", "bmt-ts-cadd", done ? "✓" : "+"));
+    c.title = done ? "Already in your tags" : "Click + to add this tag to the video";
+    c.disabled = done;
+    c.addEventListener("click", () => addWithFeedback([item.tag]));
+    return c;
+  }
+
+  /** A tag that is already in the box: score %, rank, drill-down, remove. */
+  function ownChip(tag, item) {
+    const chip = h("span", `bmt-ts-tag${openTag === tag ? " bmt-ts-open" : ""}`);
     const open = h("button", "bmt-ts-tagbtn");
     open.title = "Click for searches, competition and related tags";
-    const score = h("span", `bmt-ts-score bmt-ts-${band(item.score)}`, `${item.score}%`);
-    open.appendChild(score);
-    open.appendChild(h("span", "bmt-ts-name", item.tag));
-    open.appendChild(h("span", "bmt-ts-rank", item.rank ? `#${item.rank}` : "—"));
-    open.addEventListener("click", () => {
-      openTag = openTag === item.tag ? null : item.tag;
-      if (openTag) loadInsight(openTag);
-      render();
-    });
+    const score = item ? item.score : null;
+    open.appendChild(
+      h("span", `bmt-ts-score bmt-ts-${score == null ? "na" : band(score)}`, score == null ? "…" : `${score}%`)
+    );
+    open.appendChild(h("span", "bmt-ts-name", tag));
+    if (item?.rank) open.appendChild(h("span", "bmt-ts-rank", `#${item.rank}`));
+    open.addEventListener("click", () => openInsight(tag));
     chip.appendChild(open);
 
-    if (opts?.add) {
-      const add = h("button", "bmt-ts-act", "+");
-      add.title = "Add this tag to the box";
-      add.addEventListener("click", () => {
-        addMany([item.tag]);
-        render();
-      });
-      chip.appendChild(add);
-    }
-    if (opts?.remove) {
-      const del = h("button", "bmt-ts-act", "✕");
-      del.title = "Remove this tag from the box";
-      del.addEventListener("click", () => {
-        removeTag(item.tag);
-        setTimeout(render, 200);
-      });
-      chip.appendChild(del);
-    }
+    const del = h("button", "bmt-ts-act", "✕");
+    del.title = "Remove this tag from the box";
+    del.addEventListener("click", () => {
+      removeTag(tag);
+      setTimeout(render, 250);
+    });
+    chip.appendChild(del);
     return chip;
   }
 
   function openInsight(tag) {
-    openTab = "yours";
     openTag = openTag === tag ? null : tag;
     if (openTag) loadInsight(openTag);
     render();
@@ -287,14 +343,12 @@
    */
   function paintNativeChips() {
     const layer = badgeLayer();
-    const scored = new Map();
-    if (report) {
-      for (const t of [...report.yours, ...report.weak]) scored.set(t.tag.toLowerCase(), t);
-    }
+    const book = scoreBook();
 
     const alive = new Set();
     chips().forEach((chip, index) => {
-      const item = scored.get(chipText(chip).toLowerCase());
+      const text = chipText(chip);
+      const item = book.get(text.toLowerCase());
       if (!item) return;
       const box = chip.getBoundingClientRect();
       if (!box.width || !box.height) return;
@@ -313,12 +367,13 @@
         });
         layer.appendChild(badge);
       }
-      badge.dataset.bmtTag = item.tag;
+      const ours = addedByUs.has(text.toLowerCase());
+      badge.dataset.bmtTag = text;
       badge.className = `bmt-chip-badge bmt-native-${band(item.score)}`;
-      badge.textContent = `${item.score}%`;
+      badge.textContent = `${ours ? "✓ " : ""}${item.score}%`;
       badge.title = item.rank
-        ? `${item.tag} — ${item.score}% search demand, rank #${item.rank}. Click for related tags.`
-        : `${item.tag} — no measurable search demand. Click for related tags.`;
+        ? `${text} — ${item.score}% search demand, rank #${item.rank}. Click for related tags.`
+        : `${text} — ${item.score}% score. Click for related tags.`;
       badge.style.left = `${box.left + window.scrollX - 3}px`;
       badge.style.top = `${box.top + window.scrollY - 8}px`;
     });
@@ -332,7 +387,7 @@
     const box = h("div", "bmt-ts-insight");
     const data = insightCache.get(tag);
     if (data === null || data === undefined) {
-      box.appendChild(h("div", "bmt-ts-muted", "Loading…"));
+      box.appendChild(h("div", "bmt-ts-muted", `Finding tags for "${tag}"…`));
       return box;
     }
     if (data.error) {
@@ -342,7 +397,13 @@
 
     const head = h("div", "bmt-ts-gauge");
     head.appendChild(h("span", `bmt-ts-big bmt-ts-${band(data.score)}`, String(data.score)));
-    head.appendChild(h("span", "bmt-ts-muted", "Overall score"));
+    head.appendChild(h("span", "bmt-ts-muted", `Score for "${tag}"`));
+    const close = h("button", "bmt-ts-mini", "Close");
+    close.addEventListener("click", () => {
+      openTag = null;
+      render();
+    });
+    head.appendChild(close);
     box.appendChild(head);
 
     const stats = h("div", "bmt-ts-stats");
@@ -360,28 +421,18 @@
 
     if (data.related?.length) {
       const picks = data.related.slice(0, 24);
+      const have = inBox();
       box.appendChild(h("div", "bmt-ts-sub", `Related tags for "${tag}" (${picks.length})`));
       const chipsWrap = h("div", "bmt-ts-chips");
-      for (const r of picks) {
-        const c = h("button", `bmt-ts-chip bmt-ts-${band(r.score)}b`);
-        c.appendChild(h("span", `bmt-ts-cscore bmt-ts-${band(r.score)}`, `${r.score}%`));
-        c.appendChild(h("span", "bmt-ts-ctext", r.tag));
-        c.appendChild(h("span", "bmt-ts-cadd", "+"));
-        c.title = r.rank ? `Rank #${r.rank} in live demand — click to add` : "Click to add";
-        c.addEventListener("click", () => {
-          addMany([r.tag]);
-          render();
-        });
-        chipsWrap.appendChild(c);
-      }
+      for (const r of picks) chipsWrap.appendChild(addChip(r, have));
       box.appendChild(chipsWrap);
 
-      const addAll = h("button", "bmt-ts-mini", `Add these ${picks.length} tags`);
-      addAll.addEventListener("click", () => {
-        addMany(picks.map((r) => r.tag));
-        render();
-      });
-      box.appendChild(addAll);
+      const left = picks.filter((r) => !have.has(r.tag.toLowerCase()));
+      if (left.length) {
+        const addAll = h("button", "bmt-ts-mini", `+ Add ${left.length === 1 ? "this tag" : `these ${left.length} tags`}`);
+        addAll.addEventListener("click", () => addWithFeedback(left.map((r) => r.tag)));
+        box.appendChild(addAll);
+      }
     }
 
     if (data.topVideos?.length) {
@@ -401,34 +452,35 @@
     return box;
   }
 
-  /**
-   * Chips flow several per line (vidIQ-style); the open tag's drill-down is
-   * appended once, under the whole block, so the chip rows stay intact.
-   */
-  function section(title, items, opts) {
-    const s = h("div", "bmt-ts-sec");
+  function sectionHead(title, extra) {
     const head = h("div", "bmt-ts-head");
     head.appendChild(h("span", null, title));
-    if (opts?.extra) head.appendChild(opts.extra);
-    s.appendChild(head);
-
-    const wrap = h("div", "bmt-ts-wrap");
-    if (!items.length) {
-      wrap.appendChild(h("div", "bmt-ts-muted", opts?.empty || "Nothing here yet."));
-    }
-    for (const item of items) wrap.appendChild(tagChip(item, opts?.card || {}));
-    s.appendChild(wrap);
-
-    if (openTag && items.some((i) => i.tag === openTag)) s.appendChild(insightBox(openTag));
-    if (opts?.foot) s.appendChild(opts.foot);
-    return s;
+    if (extra) head.appendChild(extra);
+    return head;
   }
+
+  /** Overall SEO score for the video: title + how strong the tag set is + fill. */
+  function seoScore(tags, book) {
+    if (!report) return null;
+    const scores = tags.map((t) => book.get(t.toLowerCase())?.score ?? 0);
+    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const fill = Math.min(1, tagsLength(tags) / 400);
+    return Math.round(report.titleScore.score * 0.35 + avg * 0.45 + fill * 20);
+  }
+
+  let searchText = "";
 
   function render(needsAuth) {
     const panel = mount();
     if (!panel) return;
     paintNativeChips();
+    const focused = document.activeElement?.id === "bmt-ts-search";
     panel.innerHTML = "";
+
+    const tags = currentTags();
+    const have = new Set(tags.map((t) => t.toLowerCase()));
+    const book = scoreBook();
+    lastPainted = tags.join("\n");
 
     /* header */
     const head = h("div", "bmt-ts-top");
@@ -440,34 +492,122 @@
     brand.appendChild(h("strong", null, "Bainsla Tag Studio"));
     head.appendChild(brand);
 
-    const tags = currentTags();
-    const len = tagsLength(tags);
-    const meter = h(
-      "span",
-      `bmt-ts-meter bmt-ts-${len > LIMIT ? "lo" : len >= 420 ? "hi" : "mid"}`,
-      `${len}/${LIMIT} · ${tags.length} tags`
-    );
-    head.appendChild(meter);
+    const seo = seoScore(tags, book);
+    if (seo != null) {
+      const pill = h("span", `bmt-ts-seo bmt-ts-${band(seo)}`, `SEO ${seo}/100`);
+      pill.title = "Title score + strength of your tags + how much of the 500 characters you use";
+      head.appendChild(pill);
+    }
 
-    const refresh = h("button", "bmt-ts-mini", busy ? "Working…" : "Refresh");
+    const len = tagsLength(tags);
+    head.appendChild(
+      h(
+        "span",
+        `bmt-ts-meter bmt-ts-${len > LIMIT ? "lo" : len >= 420 ? "hi" : "mid"}`,
+        `${len}/${LIMIT} · ${tags.length} tags`
+      )
+    );
+
+    const refresh = h(
+      "button",
+      "bmt-ts-mini",
+      busy ? "Working…" : Date.now() - refreshedAt < 2500 ? "✓ Updated" : "⟳ Refresh"
+    );
     refresh.disabled = busy;
-    refresh.addEventListener("click", loadReport);
+    refresh.title = "Re-score your tags and fetch fresh suggestions";
+    refresh.addEventListener("click", () => loadReport(true));
     head.appendChild(refresh);
     panel.appendChild(head);
 
-    if (status) {
-      const s = h("div", "bmt-ts-status", status);
-      panel.appendChild(s);
-    }
+    if (status) panel.appendChild(h("div", "bmt-ts-status", status));
     if (needsAuth) {
       const btn = h("button", "bmt-ts-cta", "Sign in / Sign up");
       btn.addEventListener("click", () => chrome.runtime.sendMessage({ type: "openConnect" }));
       panel.appendChild(btn);
       return;
     }
+
+    /* 1. your tags, each with its score */
+    const yours = h("div", "bmt-ts-sec");
+    yours.appendChild(sectionHead(`Your tags (${tags.length})`));
+    const wrap = h("div", "bmt-ts-wrap");
+    if (!tags.length) wrap.appendChild(h("div", "bmt-ts-muted", "No tags yet — add some with + below."));
+    for (const tag of tags) wrap.appendChild(ownChip(tag, book.get(tag.toLowerCase())));
+    yours.appendChild(wrap);
+    if (openTag && have.has(openTag.toLowerCase())) yours.appendChild(insightBox(openTag));
+    panel.appendChild(yours);
+
     if (!report) return;
 
-    /* title score */
+    /* 2. recommended tags — the better ones not in the box yet */
+    const recs = recommended().slice(0, 40);
+    const pending = recs.filter((t) => !have.has(t.tag.toLowerCase()));
+    const rec = h("div", "bmt-ts-sec");
+    let addAll = null;
+    if (pending.length) {
+      addAll = h("button", "bmt-ts-cta", `+ Add all that fit (${pending.length})`);
+      addAll.addEventListener("click", () => addWithFeedback(pending.map((t) => t.tag)));
+    }
+    rec.appendChild(sectionHead(`Recommended tags (${recs.length})`, addAll));
+    const recWrap = h("div", "bmt-ts-chips");
+    if (!recs.length) recWrap.appendChild(h("div", "bmt-ts-muted", "No stronger on-topic tag found right now."));
+    for (const t of recs) recWrap.appendChild(addChip(t, have));
+    rec.appendChild(recWrap);
+    rec.appendChild(
+      h(
+        "div",
+        "bmt-ts-note",
+        "Better tags from live YouTube search demand and the videos ranking for this topic. Click + to add — it moves into your Tags box and gets a ✓."
+      )
+    );
+    panel.appendChild(rec);
+
+    /* 3. tag research box (type any keyword) */
+    const research = h("div", "bmt-ts-sec");
+    research.appendChild(sectionHead("Find more tags"));
+    const form = h("form", "bmt-ts-form");
+    const input = h("input", "bmt-ts-input");
+    input.id = "bmt-ts-search";
+    input.placeholder = "Type a keyword, e.g. gurjar rasiya";
+    input.value = searchText;
+    input.addEventListener("input", () => (searchText = input.value));
+    form.appendChild(input);
+    form.appendChild(h("button", "bmt-ts-mini", "Search"));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const k = input.value.trim();
+      if (!k) return;
+      openTag = k;
+      loadInsight(k);
+      render();
+    });
+    research.appendChild(form);
+    if (openTag && !have.has(openTag.toLowerCase())) research.appendChild(insightBox(openTag));
+    panel.appendChild(research);
+    if (focused) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+
+    /* 4. one-click actions */
+    const actions = h("div", "bmt-ts-actions");
+    const fit = h("button", "bmt-ts-mini", `Auto-fit best tags (${report.autofit.length}/500)`);
+    fit.title = "Replace the box with the strongest set that fits in 500 characters";
+    fit.addEventListener("click", () => {
+      const keep = new Set(report.autofit.used.map((t) => t.toLowerCase()));
+      for (const tag of currentTags()) {
+        if (!keep.has(tag.toLowerCase())) removeTag(tag);
+      }
+      setTimeout(() => addWithFeedback(report.autofit.used), 400);
+    });
+    actions.appendChild(fit);
+    actions.appendChild(copyBtn("Copy my tags", tags.join(", ")));
+    actions.appendChild(copyBtn("Copy 500-char set", report.autofit.text));
+    if (report.hashtags?.length)
+      actions.appendChild(copyBtn("Copy hashtags", report.hashtags.join(" ")));
+    panel.appendChild(actions);
+
+    /* 5. title score + who ranks */
     const t = h("div", "bmt-ts-title");
     t.appendChild(
       h("span", `bmt-ts-score bmt-ts-${band(report.titleScore.score)}`, String(report.titleScore.score))
@@ -478,69 +618,9 @@
     for (const r of report.titleScore.reasons.slice(0, 3)) tips.appendChild(h("li", null, r));
     panel.appendChild(tips);
 
-    /* one-click actions */
-    const actions = h("div", "bmt-ts-actions");
-    const fit = h("button", "bmt-ts-cta", `Auto-fit best tags (${report.autofit.length}/500)`);
-    fit.title = "Replace the box with the strongest set that fits in 500 characters";
-    fit.addEventListener("click", () => {
-      const keep = new Set(report.autofit.used.map((t) => t.toLowerCase()));
-      for (const tag of currentTags()) {
-        if (!keep.has(tag.toLowerCase())) removeTag(tag);
-      }
-      setTimeout(() => {
-        addMany(report.autofit.used);
-        render();
-      }, 400);
-    });
-    actions.appendChild(fit);
-    actions.appendChild(copyBtn("Copy 500-char set", report.autofit.text));
-    if (report.hashtags?.length)
-      actions.appendChild(copyBtn("Copy hashtags", report.hashtags.join(" ")));
-    panel.appendChild(actions);
-
-    /* tabs */
-    const tabs = [
-      ["suggestions", `Suggestions (${report.suggestions.length})`],
-      ["ranking", `From ranking videos (${report.fromRanking.length})`],
-      ["yours", `Your tags (${report.yours.length + report.weak.length})`],
-      ["weak", `Weak (${report.weak.length})`],
-    ];
-    const bar = h("div", "bmt-ts-tabs");
-    for (const [id, label] of tabs) {
-      const b = h("button", `bmt-ts-tab${openTab === id ? " bmt-ts-on" : ""}`, label);
-      b.addEventListener("click", () => {
-        openTab = id;
-        render();
-      });
-      bar.appendChild(b);
-    }
-    panel.appendChild(bar);
-
-    if (openTab === "suggestions") {
-      const addAll = h("button", "bmt-ts-mini", "Add all that fit");
-      addAll.addEventListener("click", () => {
-        addMany(report.suggestions.map((x) => x.tag));
-        render();
-      });
-      panel.appendChild(
-        section("Tags people are searching now", report.suggestions, {
-          extra: addAll,
-          card: { add: true },
-          empty: "No on-topic tag with live demand right now.",
-          foot: h(
-            "div",
-            "bmt-ts-note",
-            "Only tags from this video's own topic are shown. % = live search-demand strength, rank = autocomplete position (proxy, not an official YouTube number)."
-          ),
-        })
-      );
-    } else if (openTab === "ranking") {
-      const addAll = h("button", "bmt-ts-mini", "Add all that fit");
-      addAll.addEventListener("click", () => {
-        addMany(report.fromRanking.map((x) => x.tag));
-        render();
-      });
+    if (report.competitors?.length) {
       const comps = h("div", "bmt-ts-comps");
+      comps.appendChild(h("div", "bmt-ts-sub", "Top ranking videos for this topic"));
       for (const c of report.competitors.slice(0, 5)) {
         const a = h("a", "bmt-ts-vid", `${nice(c.views)} · ${c.channel} — ${c.title}`);
         a.href = `https://www.youtube.com/watch?v=${c.videoId}`;
@@ -548,56 +628,53 @@
         a.rel = "noreferrer";
         comps.appendChild(a);
       }
-      panel.appendChild(
-        section("Tags the top-ranking videos use", report.fromRanking, {
-          extra: addAll,
-          card: { add: true },
-          empty: "The ranking videos hide their tags.",
-          foot: comps,
-        })
-      );
-    } else if (openTab === "yours") {
-      panel.appendChild(
-        section("Tags in the box, strongest first", [...report.yours, ...report.weak], {
-          card: { remove: true },
-          empty: "No tags in the box yet — add some from Suggestions.",
-          foot: h(
-            "div",
-            "bmt-ts-note",
-            "Click any tag you already use to see its estimated searches, competition and every related tag you can add in one click."
-          ),
-        })
-      );
-    } else {
-      panel.appendChild(
-        section("No measurable search demand — safe to drop", report.weak, {
-          card: { remove: true },
-          empty: "Every tag in the box has search demand. 👍",
-        })
-      );
+      panel.appendChild(comps);
     }
   }
 
   /* ------------------------------ life cycle ------------------------------ */
 
+  /**
+   * Only a video's own details page (or the upload dialog) has a Tags box for
+   * us. Studio is a single-page app and keeps the old edit page in the DOM
+   * after you go back to Content, so the chip bar must also be visible.
+   */
+  function onEditPage() {
+    const bar = chipBar();
+    if (!bar) return false;
+    if (/\/video\/[^/]+\/(edit|details)/.test(location.pathname)) return true;
+    const r = bar.getBoundingClientRect();
+    return !!bar.closest("ytcp-uploads-dialog") && r.width > 0 && r.height > 0;
+  }
+
+  function teardown() {
+    document.getElementById("bmt-chip-badges")?.remove();
+    document.getElementById("bmt-tagstudio")?.remove();
+  }
+
   let lastKey = "";
+  let lastPainted = "";
   function tick() {
-    if (!chipBar()) {
-      document.getElementById("bmt-chip-badges")?.remove();
+    if (!onEditPage()) {
+      teardown();
+      lastKey = "";
       return;
     }
     // Keyed on the video, not the title text: typing in the title box must not
     // fire a fresh research call (and burn quota) on every keystroke.
-    const key = location.pathname;
+    const key = location.pathname + location.search;
     if (key !== lastKey && detectTitle()) {
       lastKey = key;
       report = null;
       openTag = null;
       insightCache.clear();
+      addedByUs.clear();
       loadReport();
       return;
     }
+    const typing = document.activeElement?.id === "bmt-ts-search";
     if (!document.getElementById("bmt-tagstudio")) render();
+    else if (!typing && currentTags().join("\n") !== lastPainted) render();
     else paintNativeChips();
   }
 
