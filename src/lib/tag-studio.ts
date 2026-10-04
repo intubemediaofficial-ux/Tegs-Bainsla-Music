@@ -19,7 +19,7 @@ import {
   shortSeedOf,
   topicWords,
 } from "./youtube";
-import { hasYouTubeApiKey, fetchVideoTags } from "./youtube-api";
+import { hasYouTubeApiKey, fetchVideoDetails } from "./youtube-api";
 import { scoreKeyword, scoreTitle } from "./scoring";
 import type { VideoLite } from "./types";
 
@@ -202,9 +202,18 @@ async function selfDemand(
 /** Tags used by the videos that already rank for this seed. */
 async function tagsFromRankingVideos(videos: VideoLite[], max = 6): Promise<string[]> {
   const ids = videos.slice(0, max).map((v) => v.videoId);
-  const lists = await Promise.all(
-    ids.map((id) => (hasYouTubeApiKey() ? fetchVideoTags(id) : getVideoTags(id)).catch(() => []))
-  );
+  let lists: string[][];
+  if (hasYouTubeApiKey()) {
+    const details = await fetchVideoDetails(ids).catch(() => new Map());
+    lists = await Promise.all(
+      ids.map((id) => {
+        const tags = details.get(id)?.tags as string[] | undefined;
+        return tags?.length ? Promise.resolve(tags) : getVideoTags(id).catch(() => []);
+      })
+    );
+  } else {
+    lists = await Promise.all(ids.map((id) => getVideoTags(id).catch(() => [])));
+  }
   const counts = new Map<string, { tag: string; count: number }>();
   for (const list of lists) {
     for (const tag of cleanTags(list)) {
@@ -438,6 +447,7 @@ export async function keywordInsight(
   ]);
 
   const metrics = scoreKeyword(k, universe.length, videos);
+  const rankingTags = await tagsFromRankingVideos(videos, 6).catch(() => [] as string[]);
   const relevant = makeRelevance([k]);
   // Context = the video's own title/tags, so a tag clicked on a Rasiya video
   // only pulls related tags from that world.
@@ -457,6 +467,18 @@ export async function keywordInsight(
   };
   // Widen in steps: the closest variations first, then anything still inside
   // the video's topic, so a clicked tag always comes back with a full set.
+  collect((n) => relevant(n) && onTopic(n));
+  // Mix in the tags the videos ranking for this keyword really use, so the
+  // list is not only autocomplete tails ("<keyword> a…", "<keyword> b…").
+  const rest = related.splice(Math.min(related.length, RELATED_TARGET - 8));
+  const fromVideos: ScoredTag[] = [];
+  rankingTags.forEach((tag, i) => {
+    const n = tag.trim().toLowerCase();
+    if (fromVideos.length >= 8 || !n || seen.has(n) || !isUsefulTag(n) || !onTopic(n)) return;
+    seen.add(n);
+    fromVideos.push({ tag: n, score: clamp(80 - i * 3), rank: null, source: "ranking" });
+  });
+  related.push(...fromVideos, ...rest.slice(0, Math.max(0, RELATED_TARGET - related.length - fromVideos.length)));
   collect((n) => relevant(n) && onTopic(n));
   collect(onTopic);
   collect(relevant);
